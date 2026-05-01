@@ -1734,6 +1734,11 @@ void CGameConsole::OnMessage(int MsgType, void *pRawMsg)
 {
 }
 
+bool CGameConsole::OnCursorMove(float, float, IInput::ECursorType)
+{
+	return IsActive();
+}
+
 bool CGameConsole::OnInput(const IInput::CEvent &Event)
 {
 	// accept input when opening, but not at first frame to discard the input that caused the console to open
@@ -1787,6 +1792,9 @@ void CGameConsole::Toggle(int Type)
 		if(m_ConsoleState == CONSOLE_CLOSED || m_ConsoleState == CONSOLE_CLOSING)
 		{
 			Ui()->SetEnabled(false);
+			Ui()->SetHotItem(nullptr);
+			Ui()->SetActiveItem(nullptr);
+			Ui()->ClearHotkeys();
 			m_ConsoleState = CONSOLE_OPENING;
 			#if defined(CONF_PLATFORM_ANDROID)
 			m_IgnoreAndroidEscapeUntil = Client()->GlobalTime() + m_StateChangeDuration + 0.25f;

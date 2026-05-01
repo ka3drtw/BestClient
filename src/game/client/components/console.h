@@ -211,6 +211,7 @@ public:
 	void OnReset() override;
 	void OnRender() override;
 	void OnMessage(int MsgType, void *pRawMsg) override;
+	bool OnCursorMove(float x, float y, IInput::ECursorType CursorType) override;
 	bool OnInput(const IInput::CEvent &Event) override;
 	void Prompt(char (&aPrompt)[32]);
 

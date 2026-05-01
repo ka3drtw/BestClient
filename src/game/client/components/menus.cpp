@@ -3128,22 +3128,31 @@ void CMenus::OnRender()
 	}
 
 	const bool IngameMenu = IsActive() && (Client()->State() == IClient::STATE_ONLINE || Client()->State() == IClient::STATE_DEMOPLAYBACK);
+	const bool ConsoleActive = GameClient()->m_GameConsole.IsActive();
 	const bool UseWindowAspectForUi = IngameMenu && g_Config.m_BcCustomAspectRatioApplyMode != 1;
 	Ui()->SetUseGraphicsScreenAspect(!UseWindowAspectForUi);
 	const bool IngameMenuAnimated = IngameMenu && BCUiAnimations::Enabled() && g_Config.m_BcIngameMenuAnimation != 0 && g_Config.m_BcIngameMenuAnimationMs > 0;
 	if(IngameMenuAnimated)
 	{
-		const bool AllowInput = !m_BcIngameMenuClosing && m_BcIngameMenuOpenPhase >= 0.999f;
+		const bool AllowInput = !ConsoleActive && !m_BcIngameMenuClosing && m_BcIngameMenuOpenPhase >= 0.999f;
 		Ui()->SetEnabled(AllowInput);
 		if(!AllowInput)
 		{
 			Ui()->SetHotItem(nullptr);
 			Ui()->SetActiveItem(nullptr);
+			if(ConsoleActive)
+				Ui()->ClearHotkeys();
 		}
 	}
 	else
 	{
-		Ui()->SetEnabled(true);
+		Ui()->SetEnabled(!ConsoleActive);
+		if(ConsoleActive)
+		{
+			Ui()->SetHotItem(nullptr);
+			Ui()->SetActiveItem(nullptr);
+			Ui()->ClearHotkeys();
+		}
 	}
 
 	Ui()->Update();
