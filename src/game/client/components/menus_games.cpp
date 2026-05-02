@@ -1362,6 +1362,7 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 			bool m_GameOver = false;
 			bool m_WhiteWon = false;
 			bool m_Stalemate = false;
+			bool m_FiftyMove = false;
 			int m_SelectedX = -1;
 			int m_SelectedY = -1;
 			bool m_Dragging = false;
@@ -1385,6 +1386,8 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 
 			// en passant variable
 			int m_EnPassantColumn = -1;
+
+			int m_HalfMoveClock = 0; // fifty-move rule
 		};
 
 		static SChessState s_Chess;
@@ -1410,6 +1413,7 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 			s_Chess.m_GameOver = false;
 			s_Chess.m_WhiteWon = false;
 			s_Chess.m_Stalemate = false;
+			s_Chess.m_FiftyMove = false;
 			s_Chess.m_SelectedX = -1;
 			s_Chess.m_SelectedY = -1;
 			s_Chess.m_Dragging = false;
@@ -1427,6 +1431,8 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 			s_Chess.m_BlackQueenSideCastle = true;
 
 			s_Chess.m_EnPassantColumn = -1;
+
+			s_Chess.m_HalfMoveClock = 0;
 		};
 
 		using TChessBoard = std::array<std::array<char, 8>, 8>;
@@ -1546,8 +1552,7 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 		};
 
 		// Todo
-		// 1. draw - fifty-move rule
-		// 2. draw - threefold repetition
+		// 1. draw - threefold repetition
 		auto IsValidMoveOnBoard = [&](const auto &Board, int FromX, int FromY, int ToX, int ToY) {
 			if(FromX == ToX && FromY == ToY)
 				return false;
@@ -1869,19 +1874,6 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 			s_Chess.m_AnimStart = AnimTime;
 			s_Chess.m_WhiteTurn = !s_Chess.m_WhiteTurn;
 
-			if(IsCheckmateOnBoard(s_Chess.m_aBoard, s_Chess.m_WhiteTurn))
-			{
-				s_Chess.m_GameOver = true;
-				s_Chess.m_WhiteWon = !s_Chess.m_WhiteTurn;
-				s_Chess.m_Stalemate = false;
-			}
-			else if(IsStalemateOnBoard(s_Chess.m_aBoard, s_Chess.m_WhiteTurn))
-			{
-				s_Chess.m_GameOver = true;
-				s_Chess.m_WhiteWon = false;
-				s_Chess.m_Stalemate = true;
-			}
-
 			if(MovingPiece == 'K')
 			{
 				s_Chess.m_WhiteKingSideCastle = false;
@@ -1921,6 +1913,31 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 				s_Chess.m_EnPassantColumn = Move.m_ToX;
 			else
 				s_Chess.m_EnPassantColumn = -1;
+
+			if(CapturedPiece != '.' || (char)toupper((unsigned char)MovingPiece) == 'P')
+				s_Chess.m_HalfMoveClock = 0;
+			else
+				s_Chess.m_HalfMoveClock++;
+
+			// end conditions
+			if(IsCheckmateOnBoard(s_Chess.m_aBoard, s_Chess.m_WhiteTurn))
+			{
+				s_Chess.m_GameOver = true;
+				s_Chess.m_WhiteWon = !s_Chess.m_WhiteTurn;
+				s_Chess.m_Stalemate = false;
+			}
+			else if(IsStalemateOnBoard(s_Chess.m_aBoard, s_Chess.m_WhiteTurn))
+			{
+				s_Chess.m_GameOver = true;
+				s_Chess.m_WhiteWon = false;
+				s_Chess.m_Stalemate = true;
+			}
+			else if(s_Chess.m_HalfMoveClock > 3)
+			{
+				s_Chess.m_GameOver = true;
+				s_Chess.m_WhiteWon = false;
+				s_Chess.m_FiftyMove = true;
+			}
 		};
 
 		if(!s_Chess.m_InGame)
@@ -1965,6 +1982,8 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 			{
 				if(s_Chess.m_Stalemate)
 					pStatus = TCLocalize("Draw - Stalemate");
+				else if (s_Chess.m_FiftyMove)
+					pStatus = TCLocalize("Draw - Fifty move rule");
 				else
 					pStatus = s_Chess.m_WhiteWon ? TCLocalize("Winner: White") : TCLocalize("Winner: Black");
 			}
@@ -2155,7 +2174,15 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 			{
 				CUIRect Overlay = Board;
 				Overlay.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.32f), IGraphics::CORNER_ALL, 4.0f);
-				const char *pResult = s_Chess.m_Stalemate ? TCLocalize("Draw - Stalemate") : (s_Chess.m_WhiteWon ? TCLocalize("White Wins") : TCLocalize("Black Wins"));
+
+				const char *pResult;
+				if(s_Chess.m_Stalemate)
+					pResult = TCLocalize("Draw - Stalemate");
+				else if(s_Chess.m_FiftyMove)
+					pResult = TCLocalize("Draw - Fifty move rule");
+				else
+					pResult = s_Chess.m_WhiteWon ? TCLocalize("White Wins") : TCLocalize("Black Wins");
+
 				Ui()->DoLabel(&Overlay, pResult, HEADLINE_FONT_SIZE, TEXTALIGN_MC);
 			}
 		}
