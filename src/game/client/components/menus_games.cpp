@@ -1910,9 +1910,32 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 				s_Chess.m_BlackKingSideCastle = false;
 
 			if((char)toupper((unsigned char)MovingPiece) == 'P' && abs(Move.m_FromY - Move.m_ToY) == 2)
-				s_Chess.m_EnPassantColumn = Move.m_ToX;
+			{
+				const bool WhitePawn = IsWhitePiece(MovingPiece);
+				bool CanEnPassant = false;
+
+				// check left
+				if(Move.m_ToX > 0)
+				{
+					const char LeftPiece = s_Chess.m_aBoard[Move.m_ToY][Move.m_ToX - 1];
+					if((char)toupper((unsigned char)LeftPiece) == 'P' && IsWhitePiece(LeftPiece) != WhitePawn)
+						CanEnPassant = true;
+				}
+
+				// check right
+				if(Move.m_ToX < 7)
+				{
+					const char RightPiece = s_Chess.m_aBoard[Move.m_ToY][Move.m_ToX + 1];
+					if((char)toupper((unsigned char)RightPiece) == 'P' && IsWhitePiece(RightPiece) != WhitePawn)
+						CanEnPassant = true;
+				}
+
+				s_Chess.m_EnPassantColumn = CanEnPassant ? Move.m_ToX : -1;
+			}
 			else
+			{
 				s_Chess.m_EnPassantColumn = -1;
+			}
 
 			if(CapturedPiece != '.' || (char)toupper((unsigned char)MovingPiece) == 'P')
 				s_Chess.m_HalfMoveClock = 0;
@@ -1932,7 +1955,7 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 				s_Chess.m_WhiteWon = false;
 				s_Chess.m_Stalemate = true;
 			}
-			else if(s_Chess.m_HalfMoveClock > 3)
+			else if(s_Chess.m_HalfMoveClock > 100)
 			{
 				s_Chess.m_GameOver = true;
 				s_Chess.m_WhiteWon = false;
