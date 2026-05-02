@@ -1382,6 +1382,9 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 			bool m_WhiteQueenSideCastle = true;
 			bool m_BlackKingSideCastle = true;
 			bool m_BlackQueenSideCastle = true;
+
+			// en passant variable
+			int m_EnPassantColumn = -1;
 		};
 
 		static SChessState s_Chess;
@@ -1422,6 +1425,8 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 			s_Chess.m_WhiteQueenSideCastle = true;
 			s_Chess.m_BlackKingSideCastle = true;
 			s_Chess.m_BlackQueenSideCastle = true;
+
+			s_Chess.m_EnPassantColumn = -1;
 		};
 
 		using TChessBoard = std::array<std::array<char, 8>, 8>;
@@ -1541,10 +1546,8 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 		};
 
 		// Todo
-		// 1. castling
-		// 2. en passant
-		// 3. draw - fifty-move rule
-		// 4. draw - threefold repetition
+		// 1. draw - fifty-move rule
+		// 2. draw - threefold repetition
 		auto IsValidMoveOnBoard = [&](const auto &Board, int FromX, int FromY, int ToX, int ToY) {
 			if(FromX == ToX && FromY == ToY)
 				return false;
@@ -1576,8 +1579,17 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 					else if(FromY == StartRow && Dy == Forward * 2 && Board[FromY + Forward][FromX] == '.')
 						IsBasicMoveValid = true;
 				}
-				else if(AbsDx == 1 && Dy == Forward && Target != '.' && IsWhitePiece(Target) != IsWhitePiece(Piece))
-					IsBasicMoveValid = true;
+				else if (AbsDx == 1 && Dy == Forward)
+				{
+					if(Target != '.' && IsWhitePiece(Target) != IsWhitePiece(Piece))
+						IsBasicMoveValid = true;
+					else if(Target == '.' && ToX == s_Chess.m_EnPassantColumn)
+					{
+						const int EnPassantRow = IsWhitePiece(Piece) ? 3 : 4;
+						if(FromY == EnPassantRow)
+							IsBasicMoveValid = true;
+					}
+				}
 			}
 			else if(UpperPiece == 'N')
 				IsBasicMoveValid = (AbsDx == 1 && AbsDy == 2) || (AbsDx == 2 && AbsDy == 1);
@@ -1717,9 +1729,12 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 		auto ApplyMoveOnBoard = [&](auto &Board, const SChessMove &Move) {
 			const char MovingPiece = Board[Move.m_FromY][Move.m_FromX];
 			const char CapturedPiece = Board[Move.m_ToY][Move.m_ToX];
+			const char Upper = (char)toupper((unsigned char)MovingPiece);
+
 			Board[Move.m_ToY][Move.m_ToX] = MovingPiece;
 			Board[Move.m_FromY][Move.m_FromX] = '.';
-			const char Upper = (char)toupper((unsigned char)MovingPiece);
+
+			// Pawn promotion
 			if(Upper == 'P' && (Move.m_ToY == 0 || Move.m_ToY == 7))
 				Board[Move.m_ToY][Move.m_ToX] = IsWhitePiece(MovingPiece) ? 'Q' : 'q';
 
@@ -1731,6 +1746,16 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 				const int RookToX = KingSide ? 5 : 3;
 				Board[Move.m_FromY][RookToX] = Board[Move.m_FromY][RookFromX];
 				Board[Move.m_FromY][RookFromX] = '.';
+			}
+
+			// En passant: capture the pawn
+			if(Upper == 'P' && Move.m_FromX != Move.m_ToX && CapturedPiece == '.')
+			{
+				const char EnPassantVictim = Board[Move.m_FromY][Move.m_ToX];
+				if((char)toupper((unsigned char)EnPassantVictim) == 'P')
+				{
+					Board[Move.m_FromY][Move.m_ToX] = '.';
+				}
 			}
 
 			return CapturedPiece;
@@ -1891,6 +1916,11 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 				s_Chess.m_BlackQueenSideCastle = false;
 			else if(CapturedPiece == 'r' && Move.m_ToX == 7 && Move.m_ToY == 0)
 				s_Chess.m_BlackKingSideCastle = false;
+
+			if((char)toupper((unsigned char)MovingPiece) == 'P' && abs(Move.m_FromY - Move.m_ToY) == 2)
+				s_Chess.m_EnPassantColumn = Move.m_ToX;
+			else
+				s_Chess.m_EnPassantColumn = -1;
 		};
 
 		if(!s_Chess.m_InGame)
