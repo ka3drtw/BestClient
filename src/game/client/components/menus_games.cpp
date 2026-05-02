@@ -1376,6 +1376,12 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 			int m_AnimToY = -1;
 			float m_AnimStart = 0.0f;
 			float m_AnimDuration = 0.18f;
+
+			// castling variables
+			bool m_WhiteKingSideCastle = true;
+			bool m_WhiteQueenSideCastle = true;
+			bool m_BlackKingSideCastle = true;
+			bool m_BlackQueenSideCastle = true;
 		};
 
 		static SChessState s_Chess;
@@ -1411,6 +1417,11 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 			for(int y = 0; y < 8; ++y)
 				for(int x = 0; x < 8; ++x)
 					s_Chess.m_aBoard[y][x] = s_apSetup[y][x];
+
+			s_Chess.m_WhiteKingSideCastle = true;
+			s_Chess.m_WhiteQueenSideCastle = true;
+			s_Chess.m_BlackKingSideCastle = true;
+			s_Chess.m_BlackQueenSideCastle = true;
 		};
 
 		using TChessBoard = std::array<std::array<char, 8>, 8>;
@@ -1492,7 +1503,7 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 
 								if(BlockPiece != '.')
 								{
-									if ((char)toupper((unsigned char)BlockPiece) == 'K' && IsWhitePiece(BlockPiece) == WhiteTurn) {
+									if((char)toupper((unsigned char)BlockPiece) == 'K' && IsWhitePiece(BlockPiece) == WhiteTurn) {
 										continue;
 									}
 
@@ -1532,6 +1543,8 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 		// Todo
 		// 1. castling
 		// 2. en passant
+		// 3. draw - fifty-move rule
+		// 4. draw - threefold repetition
 		auto IsValidMoveOnBoard = [&](const auto &Board, int FromX, int FromY, int ToX, int ToY) {
 			if(FromX == ToX && FromY == ToY)
 				return false;
@@ -1574,10 +1587,35 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 				IsBasicMoveValid = (Dx == 0 || Dy == 0) && IsPathClearOnBoard(Board, FromX, FromY, ToX, ToY);
 			else if(UpperPiece == 'Q')
 				IsBasicMoveValid = ((AbsDx == AbsDy) || (Dx == 0 || Dy == 0)) && IsPathClearOnBoard(Board, FromX, FromY, ToX, ToY);
-			else if (UpperPiece == 'K') {
+			else if(UpperPiece == 'K') {
 				if(IsUnderAttack(Board, ToX, ToY, IsWhitePiece(Piece)))
 					return false;
-				IsBasicMoveValid = AbsDx <= 1 && AbsDy <= 1;
+
+				if(AbsDx == 2 && AbsDy == 0)
+				{
+					const int RookPos = Dx == 2 ? 7 : 0;
+					if(!IsPathClearOnBoard(Board, FromX, FromY, RookPos, ToY))
+						return false;
+					if(IsUnderAttack(Board, FromX, FromY, IsWhitePiece(Piece)))
+						return false;
+					if(IsUnderAttack(Board, FromX + Dx / 2, FromY, IsWhitePiece(Piece)))
+						return false;
+					if(IsUnderAttack(Board, FromX + Dx, FromY, IsWhitePiece(Piece)))
+						return false;
+
+					if(Dx == 2)
+					{
+						IsBasicMoveValid = IsWhitePiece(Piece) ? s_Chess.m_WhiteKingSideCastle : s_Chess.m_BlackKingSideCastle;
+					}
+					else
+					{
+						IsBasicMoveValid = IsWhitePiece(Piece) ? s_Chess.m_WhiteQueenSideCastle : s_Chess.m_BlackQueenSideCastle;
+					}
+				}
+				else
+				{
+					IsBasicMoveValid = AbsDx <= 1 && AbsDy <= 1;
+				}
 			}
 
 			if(!IsBasicMoveValid)
@@ -1684,6 +1722,17 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 			const char Upper = (char)toupper((unsigned char)MovingPiece);
 			if(Upper == 'P' && (Move.m_ToY == 0 || Move.m_ToY == 7))
 				Board[Move.m_ToY][Move.m_ToX] = IsWhitePiece(MovingPiece) ? 'Q' : 'q';
+
+			// Castling: move rook
+			if(Upper == 'K' && abs(Move.m_ToX - Move.m_FromX) == 2)
+			{
+				const bool KingSide = Move.m_ToX > Move.m_FromX;
+				const int RookFromX = KingSide ? 7 : 0;
+				const int RookToX = KingSide ? 5 : 3;
+				Board[Move.m_FromY][RookToX] = Board[Move.m_FromY][RookFromX];
+				Board[Move.m_FromY][RookFromX] = '.';
+			}
+
 			return CapturedPiece;
 		};
 
@@ -1807,6 +1856,41 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 				s_Chess.m_WhiteWon = false;
 				s_Chess.m_Stalemate = true;
 			}
+
+			if(MovingPiece == 'K')
+			{
+				s_Chess.m_WhiteKingSideCastle = false;
+				s_Chess.m_WhiteQueenSideCastle = false;
+			}
+			else if(MovingPiece == 'k')
+			{
+				s_Chess.m_BlackKingSideCastle = false;
+				s_Chess.m_BlackQueenSideCastle = false;
+			}
+			else if(MovingPiece == 'R')
+			{
+				if(Move.m_FromX == 0 && Move.m_FromY == 7)
+					s_Chess.m_WhiteQueenSideCastle = false;
+				else if(Move.m_FromX == 7 && Move.m_FromY == 7)
+					s_Chess.m_WhiteKingSideCastle = false;
+			}
+			else if(MovingPiece == 'r')
+			{
+				if(Move.m_FromX == 0 && Move.m_FromY == 0)
+					s_Chess.m_BlackQueenSideCastle = false;
+				else if(Move.m_FromX == 7 && Move.m_FromY == 0)
+					s_Chess.m_BlackKingSideCastle = false;
+			}
+
+			// disable castling if rook is captured
+			if(CapturedPiece == 'R' && Move.m_ToX == 0 && Move.m_ToY == 7)
+				s_Chess.m_WhiteQueenSideCastle = false;
+			else if(CapturedPiece == 'R' && Move.m_ToX == 7 && Move.m_ToY == 7)
+				s_Chess.m_WhiteKingSideCastle = false;
+			else if(CapturedPiece == 'r' && Move.m_ToX == 0 && Move.m_ToY == 0)
+				s_Chess.m_BlackQueenSideCastle = false;
+			else if(CapturedPiece == 'r' && Move.m_ToX == 7 && Move.m_ToY == 0)
+				s_Chess.m_BlackKingSideCastle = false;
 		};
 
 		if(!s_Chess.m_InGame)
