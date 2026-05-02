@@ -1436,6 +1436,82 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 			return true;
 		};
 
+		auto IsUnderAttack = [&](const auto &Board, int ToX, int ToY, bool WhiteTurn){
+			for(int fromY = 0; fromY < 8; ++fromY)
+			{
+				for(int fromX = 0; fromX < 8; ++fromX)
+				{
+					if(fromX == ToX && fromY == ToY)
+						continue;
+
+					const char Piece = Board[fromY][fromX];
+					if(Piece == '.' || IsWhitePiece(Piece) == WhiteTurn)
+						continue;
+					
+					const int Dx = ToX - fromX;
+					const int Dy = ToY - fromY;
+					const int AbsDx = abs(Dx);
+					const int AbsDy = abs(Dy);
+					const char UpperPiece = (char)toupper((unsigned char)Piece);
+
+					if(UpperPiece == 'P')
+					{
+						const int Backward = WhiteTurn ? 1 : -1;
+						if(Dy == Backward && AbsDx == 1)
+							return true;
+					}
+					else if(UpperPiece == 'N') {
+						if((AbsDx == 1 && AbsDy == 2) || (AbsDx == 2 && AbsDy == 1))
+							return true;
+					}
+					else if(UpperPiece == 'B' || UpperPiece == 'R' || UpperPiece == 'Q') {
+						bool IsValidLine = false;
+						if(UpperPiece == 'B')
+							IsValidLine = (AbsDx == AbsDy);
+						else if(UpperPiece == 'R')
+							IsValidLine = (Dx == 0 || Dy == 0);
+						else
+							IsValidLine = ((AbsDx == AbsDy) || (Dx == 0 || Dy == 0));
+						if(IsValidLine)
+						{
+							if(IsPathClearOnBoard(Board, fromX, fromY, ToX, ToY))
+								return true;
+
+							const int StepX = (ToX > fromX) - (ToX < fromX);
+							const int StepY = (ToY > fromY) - (ToY < fromY);
+							int CheckX = fromX + StepX;
+							int CheckY = fromY + StepY;
+							bool foundBlockPiece = false;
+							while(CheckX != ToX || CheckY != ToY)
+							{
+								const char BlockPiece = Board[CheckY][CheckX];
+								CheckX += StepX;
+								CheckY += StepY;
+
+								if(BlockPiece != '.')
+								{
+									if ((char)toupper((unsigned char)BlockPiece) == 'K' && IsWhitePiece(BlockPiece) == WhiteTurn) {
+										continue;
+									}
+
+									foundBlockPiece = true;
+									break;
+								}
+							}
+
+							if(!foundBlockPiece)
+								return true;
+						}
+					}
+					else if(UpperPiece == 'K') {
+						if(AbsDx <= 1 && AbsDy <= 1)
+							return true;
+					}
+				}
+			}
+			return false;
+		};
+
 		auto IsValidMoveOnBoard = [&](const auto &Board, int FromX, int FromY, int ToX, int ToY) {
 			if(FromX == ToX && FromY == ToY)
 				return false;
@@ -1478,8 +1554,11 @@ void CMenus::RenderSettingsBestClientFun(CUIRect MainView)
 				return (Dx == 0 || Dy == 0) && IsPathClearOnBoard(Board, FromX, FromY, ToX, ToY);
 			if(UpperPiece == 'Q')
 				return ((AbsDx == AbsDy) || (Dx == 0 || Dy == 0)) && IsPathClearOnBoard(Board, FromX, FromY, ToX, ToY);
-			if(UpperPiece == 'K')
+			if (UpperPiece == 'K') {
+				if(IsUnderAttack(Board, ToX, ToY, IsWhitePiece(Piece)))
+					return false;
 				return AbsDx <= 1 && AbsDy <= 1;
+			}
 			return false;
 		};
 
