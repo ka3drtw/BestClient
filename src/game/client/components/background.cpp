@@ -4,7 +4,7 @@
 
 #include <engine/map.h>
 #include <engine/shared/config.h>
-
+// sin pidora
 #include <game/client/components/mapimages.h>
 #include <game/client/components/maplayers.h>
 #include <game/client/gameclient.h>
