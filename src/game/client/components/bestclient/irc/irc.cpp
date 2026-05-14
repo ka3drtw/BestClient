@@ -2,9 +2,9 @@
 #include "irc.h"
 
 #include <base/color.h>
-#include <base/net.h>
 #include <base/log.h>
 #include <base/math.h>
+#include <base/net.h>
 #include <base/system.h>
 
 #include <engine/client.h>
@@ -15,10 +15,10 @@
 #include <engine/textrender.h>
 
 #include <game/client/animstate.h>
-#include <game/client/gameclient.h>
-#include <game/client/render.h>
 #include <game/client/components/menus.h>
 #include <game/client/components/skins.h>
+#include <game/client/gameclient.h>
+#include <game/client/render.h>
 #include <game/localization.h>
 
 #if defined(CONF_OPENSSL)
@@ -27,12 +27,12 @@
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
 #elif defined(CONF_FAMILY_WINDOWS)
+#include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <windows.h>
 #define SECURITY_WIN32
-#include <security.h>
 #include <schannel.h>
+#include <security.h>
 #include <wincrypt.h>
 #ifdef SendMessage
 #undef SendMessage
@@ -40,8 +40,8 @@
 #endif
 
 #include <algorithm>
-#include <chrono>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -52,480 +52,480 @@ using namespace std::chrono_literals;
 
 namespace
 {
-constexpr const char *CHANNELS[] = {"international", "english", "russian", "chinese", "french"};
-constexpr const char *CHANNEL_LABELS[] = {"International", "English", "Russian", "Chinese", "French"};
-constexpr int IRC_MEDIA_MAX_RESPONSE_SIZE = 16 * 1024 * 1024;
-constexpr int IRC_MEDIA_MAX_ANIMATION_MS = 10000;
-constexpr float BESTGRAM_ROUNDING = 6.0f;
+	constexpr const char *CHANNELS[] = {"international", "english", "russian", "chinese", "french"};
+	constexpr const char *CHANNEL_LABELS[] = {"International", "English", "Russian", "Chinese", "French"};
+	constexpr int IRC_MEDIA_MAX_RESPONSE_SIZE = 16 * 1024 * 1024;
+	constexpr int IRC_MEDIA_MAX_ANIMATION_MS = 10000;
+	constexpr float BESTGRAM_ROUNDING = 6.0f;
 
-ColorRGBA IrcBg() { return ColorRGBA(0.055f, 0.057f, 0.064f, 1.0f); }
-ColorRGBA IrcPanel() { return ColorRGBA(0.120f, 0.124f, 0.140f, 1.0f); }
-ColorRGBA IrcPanelDark() { return ColorRGBA(0.075f, 0.078f, 0.088f, 1.0f); }
-ColorRGBA IrcPanel2() { return ColorRGBA(0.155f, 0.160f, 0.180f, 1.0f); }
-ColorRGBA IrcHover() { return ColorRGBA(0.205f, 0.210f, 0.235f, 1.0f); }
-ColorRGBA IrcActive() { return ColorRGBA(0.250f, 0.258f, 0.290f, 1.0f); }
-ColorRGBA IrcTextMuted() { return ColorRGBA(0.62f, 0.64f, 0.69f, 1.0f); }
-ColorRGBA IrcAccent() { return ColorRGBA(0.345f, 0.395f, 0.965f, 1.0f); }
+	ColorRGBA IrcBg() { return ColorRGBA(0.055f, 0.057f, 0.064f, 1.0f); }
+	ColorRGBA IrcPanel() { return ColorRGBA(0.120f, 0.124f, 0.140f, 1.0f); }
+	ColorRGBA IrcPanelDark() { return ColorRGBA(0.075f, 0.078f, 0.088f, 1.0f); }
+	ColorRGBA IrcPanel2() { return ColorRGBA(0.155f, 0.160f, 0.180f, 1.0f); }
+	ColorRGBA IrcHover() { return ColorRGBA(0.205f, 0.210f, 0.235f, 1.0f); }
+	ColorRGBA IrcActive() { return ColorRGBA(0.250f, 0.258f, 0.290f, 1.0f); }
+	ColorRGBA IrcTextMuted() { return ColorRGBA(0.62f, 0.64f, 0.69f, 1.0f); }
+	ColorRGBA IrcAccent() { return ColorRGBA(0.345f, 0.395f, 0.965f, 1.0f); }
 
-const char *JsonString(const json_value *pValue)
-{
-	return pValue && pValue->type == json_string ? pValue->u.string.ptr : "";
-}
-
-int64_t JsonInt64(const json_value *pValue)
-{
-	if(!pValue)
-		return 0;
-	if(pValue->type == json_integer)
-		return pValue->u.integer;
-	if(pValue->type == json_string)
-		return str_toint(pValue->u.string.ptr);
-	return 0;
-}
-
-bool JsonBoolValue(const json_value *pValue)
-{
-	return pValue && pValue->type == json_boolean && pValue->u.boolean != 0;
-}
-
-const json_value *Obj(const json_value *pObject, const char *pName)
-{
-	return pObject && pObject->type == json_object ? json_object_get(pObject, pName) : nullptr;
-}
-
-bool ParseTeeRenderInfoFromSkinJson(const char *pSkinJson, CGameClient *pGameClient, CTeeRenderInfo &TeeInfo)
-{
-	if(!pSkinJson || !pSkinJson[0])
-		return false;
-
-	json_settings Settings{};
-	char aError[json_error_max];
-	json_value *pJson = json_parse_ex(&Settings, (json_char *)pSkinJson, str_length(pSkinJson), aError);
-	if(!pJson || pJson->type != json_object)
+	const char *JsonString(const json_value *pValue)
 	{
-		json_value_free(pJson);
-		return false;
+		return pValue && pValue->type == json_string ? pValue->u.string.ptr : "";
 	}
 
-	const char *pSkinName = JsonString(Obj(pJson, "skin"));
-	if(!pSkinName[0])
-		pSkinName = "default";
+	int64_t JsonInt64(const json_value *pValue)
+	{
+		if(!pValue)
+			return 0;
+		if(pValue->type == json_integer)
+			return pValue->u.integer;
+		if(pValue->type == json_string)
+			return str_toint(pValue->u.string.ptr);
+		return 0;
+	}
 
-	TeeInfo.Reset();
-	TeeInfo.Apply(pGameClient->m_Skins.Find(pSkinName));
-	const bool CustomColors = JsonBoolValue(Obj(pJson, "custom")) || JsonInt64(Obj(pJson, "custom")) != 0;
-	TeeInfo.ApplyColors(CustomColors, JsonInt64(Obj(pJson, "body")), JsonInt64(Obj(pJson, "feet")));
+	bool JsonBoolValue(const json_value *pValue)
+	{
+		return pValue && pValue->type == json_boolean && pValue->u.boolean != 0;
+	}
 
-	json_value_free(pJson);
-	return TeeInfo.Valid();
-}
+	const json_value *Obj(const json_value *pObject, const char *pName)
+	{
+		return pObject && pObject->type == json_object ? json_object_get(pObject, pName) : nullptr;
+	}
 
-std::string MakeRequestId(const char *pPrefix)
-{
-	static std::atomic<int> s_Counter{0};
-	char aBuf[64];
-	str_format(aBuf, sizeof(aBuf), "%s-%d", pPrefix, s_Counter.fetch_add(1));
-	return aBuf;
-}
+	bool ParseTeeRenderInfoFromSkinJson(const char *pSkinJson, CGameClient *pGameClient, CTeeRenderInfo &TeeInfo)
+	{
+		if(!pSkinJson || !pSkinJson[0])
+			return false;
 
-ColorRGBA HexColor(const std::string &Text, ColorRGBA Fallback)
-{
-	if(Text.size() != 7 || Text[0] != '#')
-		return Fallback;
-	char *pEnd = nullptr;
-	const long Value = std::strtol(Text.c_str() + 1, &pEnd, 16);
-	if(!pEnd || *pEnd != '\0')
-		return Fallback;
-	return ColorRGBA(((Value >> 16) & 0xff) / 255.0f, ((Value >> 8) & 0xff) / 255.0f, (Value & 0xff) / 255.0f, 1.0f);
-}
+		json_settings Settings{};
+		char aError[json_error_max];
+		json_value *pJson = json_parse_ex(&Settings, (json_char *)pSkinJson, str_length(pSkinJson), aError);
+		if(!pJson || pJson->type != json_object)
+		{
+			json_value_free(pJson);
+			return false;
+		}
 
-void Label(ITextRender *pTextRender, CUi *pUi, const CUIRect &Rect, const char *pText, float Size, int Align, ColorRGBA Color)
-{
-	pTextRender->TextColor(Color);
-	pUi->DoLabel(&Rect, pText, Size, Align);
-	pTextRender->TextColor(pTextRender->DefaultTextColor());
-}
+		const char *pSkinName = JsonString(Obj(pJson, "skin"));
+		if(!pSkinName[0])
+			pSkinName = "default";
 
-bool LooksLikeHtml(const unsigned char *pData, size_t DataSize)
-{
-	if(pData == nullptr || DataSize == 0)
-		return false;
-	const size_t ScanSize = std::min(DataSize, (size_t)2048);
-	std::string Prefix((const char *)pData, ScanSize);
-	std::transform(Prefix.begin(), Prefix.end(), Prefix.begin(), [](unsigned char c) { return (char)std::tolower(c); });
-	return Prefix.find("<html") != std::string::npos || Prefix.find("<!doctype") != std::string::npos || Prefix.find("<meta") != std::string::npos;
-}
+		TeeInfo.Reset();
+		TeeInfo.Apply(pGameClient->m_Skins.Find(pSkinName));
+		const bool CustomColors = JsonBoolValue(Obj(pJson, "custom")) || JsonInt64(Obj(pJson, "custom")) != 0;
+		TeeInfo.ApplyColors(CustomColors, JsonInt64(Obj(pJson, "body")), JsonInt64(Obj(pJson, "feet")));
 
-bool HasGifSignature(const unsigned char *pData, size_t DataSize)
-{
-	return DataSize >= 6 && (mem_comp(pData, "GIF87a", 6) == 0 || mem_comp(pData, "GIF89a", 6) == 0);
-}
+		json_value_free(pJson);
+		return TeeInfo.Valid();
+	}
+
+	std::string MakeRequestId(const char *pPrefix)
+	{
+		static std::atomic<int> s_Counter{0};
+		char aBuf[64];
+		str_format(aBuf, sizeof(aBuf), "%s-%d", pPrefix, s_Counter.fetch_add(1));
+		return aBuf;
+	}
+
+	ColorRGBA HexColor(const std::string &Text, ColorRGBA Fallback)
+	{
+		if(Text.size() != 7 || Text[0] != '#')
+			return Fallback;
+		char *pEnd = nullptr;
+		const long Value = std::strtol(Text.c_str() + 1, &pEnd, 16);
+		if(!pEnd || *pEnd != '\0')
+			return Fallback;
+		return ColorRGBA(((Value >> 16) & 0xff) / 255.0f, ((Value >> 8) & 0xff) / 255.0f, (Value & 0xff) / 255.0f, 1.0f);
+	}
+
+	void Label(ITextRender *pTextRender, CUi *pUi, const CUIRect &Rect, const char *pText, float Size, int Align, ColorRGBA Color)
+	{
+		pTextRender->TextColor(Color);
+		pUi->DoLabel(&Rect, pText, Size, Align);
+		pTextRender->TextColor(pTextRender->DefaultTextColor());
+	}
+
+	bool LooksLikeHtml(const unsigned char *pData, size_t DataSize)
+	{
+		if(pData == nullptr || DataSize == 0)
+			return false;
+		const size_t ScanSize = std::min(DataSize, (size_t)2048);
+		std::string Prefix((const char *)pData, ScanSize);
+		std::transform(Prefix.begin(), Prefix.end(), Prefix.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+		return Prefix.find("<html") != std::string::npos || Prefix.find("<!doctype") != std::string::npos || Prefix.find("<meta") != std::string::npos;
+	}
+
+	bool HasGifSignature(const unsigned char *pData, size_t DataSize)
+	{
+		return DataSize >= 6 && (mem_comp(pData, "GIF87a", 6) == 0 || mem_comp(pData, "GIF89a", 6) == 0);
+	}
 
 #if !defined(CONF_OPENSSL) && defined(CONF_FAMILY_WINDOWS)
-void NetAddrToSockaddrIn(const NETADDR &Addr, sockaddr_in &SockAddr)
-{
-	mem_zero(&SockAddr, sizeof(SockAddr));
-	SockAddr.sin_family = AF_INET;
-	SockAddr.sin_port = htons(Addr.port);
-	mem_copy(&SockAddr.sin_addr.s_addr, Addr.ip, sizeof(unsigned char) * 4);
-}
-
-void NetAddrToSockaddrIn6(const NETADDR &Addr, sockaddr_in6 &SockAddr)
-{
-	mem_zero(&SockAddr, sizeof(SockAddr));
-	SockAddr.sin6_family = AF_INET6;
-	SockAddr.sin6_port = htons(Addr.port);
-	mem_copy(&SockAddr.sin6_addr.s6_addr, Addr.ip, sizeof(Addr.ip));
-}
-
-class CSchannelSocket
-{
-public:
-	~CSchannelSocket()
+	void NetAddrToSockaddrIn(const NETADDR &Addr, sockaddr_in &SockAddr)
 	{
-		Close();
+		mem_zero(&SockAddr, sizeof(SockAddr));
+		SockAddr.sin_family = AF_INET;
+		SockAddr.sin_port = htons(Addr.port);
+		mem_copy(&SockAddr.sin_addr.s_addr, Addr.ip, sizeof(unsigned char) * 4);
 	}
 
-	bool Connect(const char *pHost, int Port, std::string &Error, std::string &Fingerprint)
+	void NetAddrToSockaddrIn6(const NETADDR &Addr, sockaddr_in6 &SockAddr)
 	{
-		NETADDR Addr;
-		if(net_host_lookup(pHost, &Addr, NETTYPE_ALL) != 0)
-		{
-			Error = "Could not resolve BestGram host.";
-			return false;
-		}
-		Addr.port = Port;
+		mem_zero(&SockAddr, sizeof(SockAddr));
+		SockAddr.sin6_family = AF_INET6;
+		SockAddr.sin6_port = htons(Addr.port);
+		mem_copy(&SockAddr.sin6_addr.s6_addr, Addr.ip, sizeof(Addr.ip));
+	}
 
-		m_Socket = socket((Addr.type & NETTYPE_IPV6) ? AF_INET6 : AF_INET, SOCK_STREAM, IPPROTO_TCP);
-		if(m_Socket == INVALID_SOCKET)
+	class CSchannelSocket
+	{
+	public:
+		~CSchannelSocket()
 		{
-			Error = "Could not create TLS socket.";
-			return false;
+			Close();
 		}
 
-		if(Addr.type & NETTYPE_IPV6)
+		bool Connect(const char *pHost, int Port, std::string &Error, std::string &Fingerprint)
 		{
-			sockaddr_in6 SockAddr;
-			NetAddrToSockaddrIn6(Addr, SockAddr);
-			if(connect(m_Socket, (sockaddr *)&SockAddr, sizeof(SockAddr)) != 0)
+			NETADDR Addr;
+			if(net_host_lookup(pHost, &Addr, NETTYPE_ALL) != 0)
 			{
-				Error = "TLS connection failed.";
+				Error = "Could not resolve BestGram host.";
 				return false;
 			}
-		}
-		else
-		{
-			sockaddr_in SockAddr;
-			NetAddrToSockaddrIn(Addr, SockAddr);
-			if(connect(m_Socket, (sockaddr *)&SockAddr, sizeof(SockAddr)) != 0)
+			Addr.port = Port;
+
+			m_Socket = socket((Addr.type & NETTYPE_IPV6) ? AF_INET6 : AF_INET, SOCK_STREAM, IPPROTO_TCP);
+			if(m_Socket == INVALID_SOCKET)
 			{
-				Error = "TLS connection failed.";
+				Error = "Could not create TLS socket.";
 				return false;
 			}
-		}
 
-		SCHANNEL_CRED Cred{};
-		Cred.dwVersion = SCHANNEL_CRED_VERSION;
-		Cred.dwFlags = SCH_CRED_MANUAL_CRED_VALIDATION | SCH_CRED_NO_DEFAULT_CREDS | SCH_CRED_NO_SERVERNAME_CHECK;
+			if(Addr.type & NETTYPE_IPV6)
+			{
+				sockaddr_in6 SockAddr;
+				NetAddrToSockaddrIn6(Addr, SockAddr);
+				if(connect(m_Socket, (sockaddr *)&SockAddr, sizeof(SockAddr)) != 0)
+				{
+					Error = "TLS connection failed.";
+					return false;
+				}
+			}
+			else
+			{
+				sockaddr_in SockAddr;
+				NetAddrToSockaddrIn(Addr, SockAddr);
+				if(connect(m_Socket, (sockaddr *)&SockAddr, sizeof(SockAddr)) != 0)
+				{
+					Error = "TLS connection failed.";
+					return false;
+				}
+			}
 
-		TimeStamp Expiry;
-		SECURITY_STATUS Status = AcquireCredentialsHandleA(nullptr, const_cast<char *>(UNISP_NAME_A), SECPKG_CRED_OUTBOUND, nullptr, &Cred, nullptr, nullptr, &m_CredHandle, &Expiry);
-		if(Status != SEC_E_OK)
-		{
-			Error = "Could not acquire TLS credentials.";
-			return false;
-		}
-		m_HasCredHandle = true;
+			SCHANNEL_CRED Cred{};
+			Cred.dwVersion = SCHANNEL_CRED_VERSION;
+			Cred.dwFlags = SCH_CRED_MANUAL_CRED_VALIDATION | SCH_CRED_NO_DEFAULT_CREDS | SCH_CRED_NO_SERVERNAME_CHECK;
 
-		DWORD Flags = ISC_REQ_SEQUENCE_DETECT | ISC_REQ_REPLAY_DETECT | ISC_REQ_CONFIDENTIALITY | ISC_REQ_ALLOCATE_MEMORY | ISC_REQ_STREAM;
-		DWORD OutFlags = 0;
-		SecBufferDesc OutBufferDesc;
-		SecBuffer OutBuffers[1];
-		OutBufferDesc.ulVersion = SECBUFFER_VERSION;
-		OutBufferDesc.cBuffers = 1;
-		OutBufferDesc.pBuffers = OutBuffers;
-		OutBuffers[0].BufferType = SECBUFFER_TOKEN;
-		OutBuffers[0].pvBuffer = nullptr;
-		OutBuffers[0].cbBuffer = 0;
+			TimeStamp Expiry;
+			SECURITY_STATUS Status = AcquireCredentialsHandleA(nullptr, const_cast<char *>(UNISP_NAME_A), SECPKG_CRED_OUTBOUND, nullptr, &Cred, nullptr, nullptr, &m_CredHandle, &Expiry);
+			if(Status != SEC_E_OK)
+			{
+				Error = "Could not acquire TLS credentials.";
+				return false;
+			}
+			m_HasCredHandle = true;
 
-		Status = InitializeSecurityContextA(&m_CredHandle, nullptr, const_cast<char *>(pHost), Flags, 0, SECURITY_NATIVE_DREP, nullptr, 0, &m_CtxHandle, &OutBufferDesc, &OutFlags, &Expiry);
-		if(Status != SEC_I_CONTINUE_NEEDED)
-		{
-			Error = "TLS handshake failed.";
-			return false;
-		}
-		m_HasCtxHandle = true;
-		if(!SendToken(OutBuffers[0]))
-		{
-			if(OutBuffers[0].pvBuffer)
-				FreeContextBuffer(OutBuffers[0].pvBuffer);
-			Error = "TLS handshake failed.";
-			return false;
-		}
-		if(OutBuffers[0].pvBuffer)
-			FreeContextBuffer(OutBuffers[0].pvBuffer);
+			DWORD Flags = ISC_REQ_SEQUENCE_DETECT | ISC_REQ_REPLAY_DETECT | ISC_REQ_CONFIDENTIALITY | ISC_REQ_ALLOCATE_MEMORY | ISC_REQ_STREAM;
+			DWORD OutFlags = 0;
+			SecBufferDesc OutBufferDesc;
+			SecBuffer OutBuffers[1];
+			OutBufferDesc.ulVersion = SECBUFFER_VERSION;
+			OutBufferDesc.cBuffers = 1;
+			OutBufferDesc.pBuffers = OutBuffers;
+			OutBuffers[0].BufferType = SECBUFFER_TOKEN;
+			OutBuffers[0].pvBuffer = nullptr;
+			OutBuffers[0].cbBuffer = 0;
 
-		std::vector<unsigned char> vHandshakeData;
-		unsigned char aBuffer[8192];
-		while(true)
-		{
-			const int Received = recv(m_Socket, (char *)aBuffer, sizeof(aBuffer), 0);
-			if(Received <= 0)
+			Status = InitializeSecurityContextA(&m_CredHandle, nullptr, const_cast<char *>(pHost), Flags, 0, SECURITY_NATIVE_DREP, nullptr, 0, &m_CtxHandle, &OutBufferDesc, &OutFlags, &Expiry);
+			if(Status != SEC_I_CONTINUE_NEEDED)
 			{
 				Error = "TLS handshake failed.";
 				return false;
 			}
-			vHandshakeData.insert(vHandshakeData.end(), aBuffer, aBuffer + Received);
+			m_HasCtxHandle = true;
+			if(!SendToken(OutBuffers[0]))
+			{
+				if(OutBuffers[0].pvBuffer)
+					FreeContextBuffer(OutBuffers[0].pvBuffer);
+				Error = "TLS handshake failed.";
+				return false;
+			}
+			if(OutBuffers[0].pvBuffer)
+				FreeContextBuffer(OutBuffers[0].pvBuffer);
 
+			std::vector<unsigned char> vHandshakeData;
+			unsigned char aBuffer[8192];
 			while(true)
 			{
-				SecBuffer InBuffers[2];
-				SecBufferDesc InBufferDesc;
-				InBufferDesc.ulVersion = SECBUFFER_VERSION;
-				InBufferDesc.cBuffers = 2;
-				InBufferDesc.pBuffers = InBuffers;
-				InBuffers[0].BufferType = SECBUFFER_TOKEN;
-				InBuffers[0].pvBuffer = vHandshakeData.data();
-				InBuffers[0].cbBuffer = (unsigned long)vHandshakeData.size();
-				InBuffers[1].BufferType = SECBUFFER_EMPTY;
-				InBuffers[1].pvBuffer = nullptr;
-				InBuffers[1].cbBuffer = 0;
-
-				OutBuffers[0].BufferType = SECBUFFER_TOKEN;
-				OutBuffers[0].pvBuffer = nullptr;
-				OutBuffers[0].cbBuffer = 0;
-				Status = InitializeSecurityContextA(&m_CredHandle, &m_CtxHandle, const_cast<char *>(pHost), Flags, 0, SECURITY_NATIVE_DREP, &InBufferDesc, 0, nullptr, &OutBufferDesc, &OutFlags, &Expiry);
-				if(OutBuffers[0].pvBuffer)
-				{
-					if(!SendToken(OutBuffers[0]))
-					{
-						FreeContextBuffer(OutBuffers[0].pvBuffer);
-						Error = "TLS handshake failed.";
-						return false;
-					}
-					FreeContextBuffer(OutBuffers[0].pvBuffer);
-				}
-
-				if(Status == SEC_E_INCOMPLETE_MESSAGE)
-					break;
-
-				if(Status == SEC_E_OK)
-				{
-					if(InBuffers[1].BufferType == SECBUFFER_EXTRA)
-					{
-						const size_t ExtraOffset = vHandshakeData.size() - InBuffers[1].cbBuffer;
-						m_vEncryptedRead.assign(vHandshakeData.begin() + ExtraOffset, vHandshakeData.end());
-					}
-					else
-					{
-						m_vEncryptedRead.clear();
-					}
-
-					if(QueryContextAttributes(&m_CtxHandle, SECPKG_ATTR_STREAM_SIZES, &m_StreamSizes) != SEC_E_OK)
-					{
-						Error = "Could not query TLS stream sizes.";
-						return false;
-					}
-
-					PCCERT_CONTEXT pCertContext = nullptr;
-					if(QueryContextAttributes(&m_CtxHandle, SECPKG_ATTR_REMOTE_CERT_CONTEXT, &pCertContext) != SEC_E_OK || !pCertContext)
-					{
-						Error = "Server did not present a certificate.";
-						return false;
-					}
-					BYTE aHash[32];
-					DWORD HashSize = sizeof(aHash);
-					if(!CertGetCertificateContextProperty(pCertContext, CERT_SHA256_HASH_PROP_ID, aHash, &HashSize))
-					{
-						CertFreeCertificateContext(pCertContext);
-						Error = "Could not read server certificate fingerprint.";
-						return false;
-					}
-					CertFreeCertificateContext(pCertContext);
-					char aHex[65];
-					for(DWORD i = 0; i < HashSize; ++i)
-						str_format(aHex + i * 2, sizeof(aHex) - i * 2, "%02x", aHash[i]);
-					Fingerprint = aHex;
-					return true;
-				}
-
-				if(Status != SEC_I_CONTINUE_NEEDED)
+				const int Received = recv(m_Socket, (char *)aBuffer, sizeof(aBuffer), 0);
+				if(Received <= 0)
 				{
 					Error = "TLS handshake failed.";
 					return false;
 				}
+				vHandshakeData.insert(vHandshakeData.end(), aBuffer, aBuffer + Received);
 
-				if(InBuffers[1].BufferType == SECBUFFER_EXTRA)
+				while(true)
 				{
-					const size_t ExtraOffset = vHandshakeData.size() - InBuffers[1].cbBuffer;
-					std::vector<unsigned char> vExtra(vHandshakeData.begin() + ExtraOffset, vHandshakeData.end());
-					vHandshakeData.swap(vExtra);
-				}
-				else
-				{
-					vHandshakeData.clear();
-					break;
+					SecBuffer InBuffers[2];
+					SecBufferDesc InBufferDesc;
+					InBufferDesc.ulVersion = SECBUFFER_VERSION;
+					InBufferDesc.cBuffers = 2;
+					InBufferDesc.pBuffers = InBuffers;
+					InBuffers[0].BufferType = SECBUFFER_TOKEN;
+					InBuffers[0].pvBuffer = vHandshakeData.data();
+					InBuffers[0].cbBuffer = (unsigned long)vHandshakeData.size();
+					InBuffers[1].BufferType = SECBUFFER_EMPTY;
+					InBuffers[1].pvBuffer = nullptr;
+					InBuffers[1].cbBuffer = 0;
+
+					OutBuffers[0].BufferType = SECBUFFER_TOKEN;
+					OutBuffers[0].pvBuffer = nullptr;
+					OutBuffers[0].cbBuffer = 0;
+					Status = InitializeSecurityContextA(&m_CredHandle, &m_CtxHandle, const_cast<char *>(pHost), Flags, 0, SECURITY_NATIVE_DREP, &InBufferDesc, 0, nullptr, &OutBufferDesc, &OutFlags, &Expiry);
+					if(OutBuffers[0].pvBuffer)
+					{
+						if(!SendToken(OutBuffers[0]))
+						{
+							FreeContextBuffer(OutBuffers[0].pvBuffer);
+							Error = "TLS handshake failed.";
+							return false;
+						}
+						FreeContextBuffer(OutBuffers[0].pvBuffer);
+					}
+
+					if(Status == SEC_E_INCOMPLETE_MESSAGE)
+						break;
+
+					if(Status == SEC_E_OK)
+					{
+						if(InBuffers[1].BufferType == SECBUFFER_EXTRA)
+						{
+							const size_t ExtraOffset = vHandshakeData.size() - InBuffers[1].cbBuffer;
+							m_vEncryptedRead.assign(vHandshakeData.begin() + ExtraOffset, vHandshakeData.end());
+						}
+						else
+						{
+							m_vEncryptedRead.clear();
+						}
+
+						if(QueryContextAttributes(&m_CtxHandle, SECPKG_ATTR_STREAM_SIZES, &m_StreamSizes) != SEC_E_OK)
+						{
+							Error = "Could not query TLS stream sizes.";
+							return false;
+						}
+
+						PCCERT_CONTEXT pCertContext = nullptr;
+						if(QueryContextAttributes(&m_CtxHandle, SECPKG_ATTR_REMOTE_CERT_CONTEXT, &pCertContext) != SEC_E_OK || !pCertContext)
+						{
+							Error = "Server did not present a certificate.";
+							return false;
+						}
+						BYTE aHash[32];
+						DWORD HashSize = sizeof(aHash);
+						if(!CertGetCertificateContextProperty(pCertContext, CERT_SHA256_HASH_PROP_ID, aHash, &HashSize))
+						{
+							CertFreeCertificateContext(pCertContext);
+							Error = "Could not read server certificate fingerprint.";
+							return false;
+						}
+						CertFreeCertificateContext(pCertContext);
+						char aHex[65];
+						for(DWORD i = 0; i < HashSize; ++i)
+							str_format(aHex + i * 2, sizeof(aHex) - i * 2, "%02x", aHash[i]);
+						Fingerprint = aHex;
+						return true;
+					}
+
+					if(Status != SEC_I_CONTINUE_NEEDED)
+					{
+						Error = "TLS handshake failed.";
+						return false;
+					}
+
+					if(InBuffers[1].BufferType == SECBUFFER_EXTRA)
+					{
+						const size_t ExtraOffset = vHandshakeData.size() - InBuffers[1].cbBuffer;
+						std::vector<unsigned char> vExtra(vHandshakeData.begin() + ExtraOffset, vHandshakeData.end());
+						vHandshakeData.swap(vExtra);
+					}
+					else
+					{
+						vHandshakeData.clear();
+						break;
+					}
 				}
 			}
 		}
-	}
 
-	bool SendPlain(const char *pData, int Size)
-	{
-		if(!m_HasCtxHandle)
-			return false;
-
-		std::vector<unsigned char> vPacket(m_StreamSizes.cbHeader + Size + m_StreamSizes.cbTrailer);
-		mem_copy(vPacket.data() + m_StreamSizes.cbHeader, pData, Size);
-
-		SecBuffer Buffers[4];
-		SecBufferDesc BufferDesc;
-		BufferDesc.ulVersion = SECBUFFER_VERSION;
-		BufferDesc.cBuffers = 4;
-		BufferDesc.pBuffers = Buffers;
-		Buffers[0].BufferType = SECBUFFER_STREAM_HEADER;
-		Buffers[0].pvBuffer = vPacket.data();
-		Buffers[0].cbBuffer = m_StreamSizes.cbHeader;
-		Buffers[1].BufferType = SECBUFFER_DATA;
-		Buffers[1].pvBuffer = vPacket.data() + m_StreamSizes.cbHeader;
-		Buffers[1].cbBuffer = Size;
-		Buffers[2].BufferType = SECBUFFER_STREAM_TRAILER;
-		Buffers[2].pvBuffer = vPacket.data() + m_StreamSizes.cbHeader + Size;
-		Buffers[2].cbBuffer = m_StreamSizes.cbTrailer;
-		Buffers[3].BufferType = SECBUFFER_EMPTY;
-		Buffers[3].pvBuffer = nullptr;
-		Buffers[3].cbBuffer = 0;
-
-		if(EncryptMessage(&m_CtxHandle, 0, &BufferDesc, 0) != SEC_E_OK)
-			return false;
-
-		const int Total = (int)(Buffers[0].cbBuffer + Buffers[1].cbBuffer + Buffers[2].cbBuffer);
-		int Sent = 0;
-		while(Sent < Total)
+		bool SendPlain(const char *pData, int Size)
 		{
-			const int Result = send(m_Socket, (const char *)vPacket.data() + Sent, Total - Sent, 0);
-			if(Result <= 0)
+			if(!m_HasCtxHandle)
 				return false;
-			Sent += Result;
-		}
-		return true;
-	}
 
-	bool PollRead(std::string &Out)
-	{
-		fd_set ReadSet;
-		FD_ZERO(&ReadSet);
-		FD_SET(m_Socket, &ReadSet);
-		timeval Timeout{};
-		if(select(0, &ReadSet, nullptr, nullptr, &Timeout) <= 0)
-			return true;
+			std::vector<unsigned char> vPacket(m_StreamSizes.cbHeader + Size + m_StreamSizes.cbTrailer);
+			mem_copy(vPacket.data() + m_StreamSizes.cbHeader, pData, Size);
 
-		unsigned char aBuffer[8192];
-		const int Received = recv(m_Socket, (char *)aBuffer, sizeof(aBuffer), 0);
-		if(Received == 0)
-			return false;
-		if(Received < 0)
-			return true;
-		m_vEncryptedRead.insert(m_vEncryptedRead.end(), aBuffer, aBuffer + Received);
-
-		while(!m_vEncryptedRead.empty())
-		{
 			SecBuffer Buffers[4];
 			SecBufferDesc BufferDesc;
 			BufferDesc.ulVersion = SECBUFFER_VERSION;
 			BufferDesc.cBuffers = 4;
 			BufferDesc.pBuffers = Buffers;
-			Buffers[0].BufferType = SECBUFFER_DATA;
-			Buffers[0].pvBuffer = m_vEncryptedRead.data();
-			Buffers[0].cbBuffer = (unsigned long)m_vEncryptedRead.size();
-			Buffers[1].BufferType = SECBUFFER_EMPTY;
-			Buffers[1].pvBuffer = nullptr;
-			Buffers[1].cbBuffer = 0;
-			Buffers[2].BufferType = SECBUFFER_EMPTY;
-			Buffers[2].pvBuffer = nullptr;
-			Buffers[2].cbBuffer = 0;
+			Buffers[0].BufferType = SECBUFFER_STREAM_HEADER;
+			Buffers[0].pvBuffer = vPacket.data();
+			Buffers[0].cbBuffer = m_StreamSizes.cbHeader;
+			Buffers[1].BufferType = SECBUFFER_DATA;
+			Buffers[1].pvBuffer = vPacket.data() + m_StreamSizes.cbHeader;
+			Buffers[1].cbBuffer = Size;
+			Buffers[2].BufferType = SECBUFFER_STREAM_TRAILER;
+			Buffers[2].pvBuffer = vPacket.data() + m_StreamSizes.cbHeader + Size;
+			Buffers[2].cbBuffer = m_StreamSizes.cbTrailer;
 			Buffers[3].BufferType = SECBUFFER_EMPTY;
 			Buffers[3].pvBuffer = nullptr;
 			Buffers[3].cbBuffer = 0;
 
-			const SECURITY_STATUS Status = DecryptMessage(&m_CtxHandle, &BufferDesc, 0, nullptr);
-			if(Status == SEC_E_INCOMPLETE_MESSAGE)
-				break;
-			if(Status == SEC_I_CONTEXT_EXPIRED)
-				return false;
-			if(Status != SEC_E_OK && Status != SEC_I_RENEGOTIATE)
+			if(EncryptMessage(&m_CtxHandle, 0, &BufferDesc, 0) != SEC_E_OK)
 				return false;
 
-			for(const SecBuffer &Buffer : Buffers)
+			const int Total = (int)(Buffers[0].cbBuffer + Buffers[1].cbBuffer + Buffers[2].cbBuffer);
+			int Sent = 0;
+			while(Sent < Total)
 			{
-				if(Buffer.BufferType == SECBUFFER_DATA && Buffer.cbBuffer > 0)
-					Out.append((const char *)Buffer.pvBuffer, Buffer.cbBuffer);
+				const int Result = send(m_Socket, (const char *)vPacket.data() + Sent, Total - Sent, 0);
+				if(Result <= 0)
+					return false;
+				Sent += Result;
 			}
+			return true;
+		}
 
-			bool HasExtra = false;
-			for(const SecBuffer &Buffer : Buffers)
+		bool PollRead(std::string &Out)
+		{
+			fd_set ReadSet;
+			FD_ZERO(&ReadSet);
+			FD_SET(m_Socket, &ReadSet);
+			timeval Timeout{};
+			if(select(0, &ReadSet, nullptr, nullptr, &Timeout) <= 0)
+				return true;
+
+			unsigned char aBuffer[8192];
+			const int Received = recv(m_Socket, (char *)aBuffer, sizeof(aBuffer), 0);
+			if(Received == 0)
+				return false;
+			if(Received < 0)
+				return true;
+			m_vEncryptedRead.insert(m_vEncryptedRead.end(), aBuffer, aBuffer + Received);
+
+			while(!m_vEncryptedRead.empty())
 			{
-				if(Buffer.BufferType == SECBUFFER_EXTRA)
-				{
-					const size_t ExtraOffset = m_vEncryptedRead.size() - Buffer.cbBuffer;
-					std::vector<unsigned char> vExtra(m_vEncryptedRead.begin() + ExtraOffset, m_vEncryptedRead.end());
-					m_vEncryptedRead.swap(vExtra);
-					HasExtra = true;
+				SecBuffer Buffers[4];
+				SecBufferDesc BufferDesc;
+				BufferDesc.ulVersion = SECBUFFER_VERSION;
+				BufferDesc.cBuffers = 4;
+				BufferDesc.pBuffers = Buffers;
+				Buffers[0].BufferType = SECBUFFER_DATA;
+				Buffers[0].pvBuffer = m_vEncryptedRead.data();
+				Buffers[0].cbBuffer = (unsigned long)m_vEncryptedRead.size();
+				Buffers[1].BufferType = SECBUFFER_EMPTY;
+				Buffers[1].pvBuffer = nullptr;
+				Buffers[1].cbBuffer = 0;
+				Buffers[2].BufferType = SECBUFFER_EMPTY;
+				Buffers[2].pvBuffer = nullptr;
+				Buffers[2].cbBuffer = 0;
+				Buffers[3].BufferType = SECBUFFER_EMPTY;
+				Buffers[3].pvBuffer = nullptr;
+				Buffers[3].cbBuffer = 0;
+
+				const SECURITY_STATUS Status = DecryptMessage(&m_CtxHandle, &BufferDesc, 0, nullptr);
+				if(Status == SEC_E_INCOMPLETE_MESSAGE)
 					break;
+				if(Status == SEC_I_CONTEXT_EXPIRED)
+					return false;
+				if(Status != SEC_E_OK && Status != SEC_I_RENEGOTIATE)
+					return false;
+
+				for(const SecBuffer &Buffer : Buffers)
+				{
+					if(Buffer.BufferType == SECBUFFER_DATA && Buffer.cbBuffer > 0)
+						Out.append((const char *)Buffer.pvBuffer, Buffer.cbBuffer);
 				}
+
+				bool HasExtra = false;
+				for(const SecBuffer &Buffer : Buffers)
+				{
+					if(Buffer.BufferType == SECBUFFER_EXTRA)
+					{
+						const size_t ExtraOffset = m_vEncryptedRead.size() - Buffer.cbBuffer;
+						std::vector<unsigned char> vExtra(m_vEncryptedRead.begin() + ExtraOffset, m_vEncryptedRead.end());
+						m_vEncryptedRead.swap(vExtra);
+						HasExtra = true;
+						break;
+					}
+				}
+				if(!HasExtra)
+					m_vEncryptedRead.clear();
+				if(Status == SEC_I_RENEGOTIATE)
+					return false;
 			}
-			if(!HasExtra)
-				m_vEncryptedRead.clear();
-			if(Status == SEC_I_RENEGOTIATE)
-				return false;
+			return true;
 		}
-		return true;
-	}
 
-	void Close()
-	{
-		if(m_HasCtxHandle)
+		void Close()
 		{
-			DeleteSecurityContext(&m_CtxHandle);
-			m_HasCtxHandle = false;
+			if(m_HasCtxHandle)
+			{
+				DeleteSecurityContext(&m_CtxHandle);
+				m_HasCtxHandle = false;
+			}
+			if(m_HasCredHandle)
+			{
+				FreeCredentialsHandle(&m_CredHandle);
+				m_HasCredHandle = false;
+			}
+			if(m_Socket != INVALID_SOCKET)
+			{
+				closesocket(m_Socket);
+				m_Socket = INVALID_SOCKET;
+			}
+			m_vEncryptedRead.clear();
 		}
-		if(m_HasCredHandle)
-		{
-			FreeCredentialsHandle(&m_CredHandle);
-			m_HasCredHandle = false;
-		}
-		if(m_Socket != INVALID_SOCKET)
-		{
-			closesocket(m_Socket);
-			m_Socket = INVALID_SOCKET;
-		}
-		m_vEncryptedRead.clear();
-	}
 
-private:
-	bool SendToken(const SecBuffer &Buffer)
-	{
-		const char *pData = (const char *)Buffer.pvBuffer;
-		int Left = (int)Buffer.cbBuffer;
-		while(Left > 0)
+	private:
+		bool SendToken(const SecBuffer &Buffer)
 		{
-			const int Result = send(m_Socket, pData, Left, 0);
-			if(Result <= 0)
-				return false;
-			pData += Result;
-			Left -= Result;
+			const char *pData = (const char *)Buffer.pvBuffer;
+			int Left = (int)Buffer.cbBuffer;
+			while(Left > 0)
+			{
+				const int Result = send(m_Socket, pData, Left, 0);
+				if(Result <= 0)
+					return false;
+				pData += Result;
+				Left -= Result;
+			}
+			return true;
 		}
-		return true;
-	}
 
-	SOCKET m_Socket = INVALID_SOCKET;
-	CredHandle m_CredHandle{};
-	CtxtHandle m_CtxHandle{};
-	bool m_HasCredHandle = false;
-	bool m_HasCtxHandle = false;
-	SecPkgContext_StreamSizes m_StreamSizes{};
-	std::vector<unsigned char> m_vEncryptedRead;
-};
+		SOCKET m_Socket = INVALID_SOCKET;
+		CredHandle m_CredHandle{};
+		CtxtHandle m_CtxHandle{};
+		bool m_HasCredHandle = false;
+		bool m_HasCtxHandle = false;
+		SecPkgContext_StreamSizes m_StreamSizes{};
+		std::vector<unsigned char> m_vEncryptedRead;
+	};
 #endif
 }
 
@@ -649,6 +649,52 @@ void CIrcChat::NetworkMain()
 
 	char aTarget[320];
 	str_format(aTarget, sizeof(aTarget), "%s:%d", g_Config.m_BcIrcHost, g_Config.m_BcIrcPort);
+#if defined(CONF_PLATFORM_ANDROID)
+	BIO *pBio = BIO_new_connect(aTarget);
+	if(!pBio)
+	{
+		SSL_CTX_free(pCtx);
+		QueueEvent("{\"type\":\"client.error\",\"message\":\"Could not create TLS BIO.\"}");
+		return;
+	}
+	BIO_set_nbio(pBio, 1);
+
+	SSL *pSsl = SSL_new(pCtx);
+	if(!pSsl)
+	{
+		BIO_free_all(pBio);
+		SSL_CTX_free(pCtx);
+		QueueEvent("{\"type\":\"client.error\",\"message\":\"Could not create TLS session.\"}");
+		return;
+	}
+	SSL_set_connect_state(pSsl);
+	SSL_set_tlsext_host_name(pSsl, g_Config.m_BcIrcHost);
+	SSL_set_bio(pSsl, pBio, pBio);
+
+	while(!m_StopThread)
+	{
+		const int ConnectResult = SSL_connect(pSsl);
+		if(ConnectResult == 1)
+			break;
+
+		const int SslError = SSL_get_error(pSsl, ConnectResult);
+		if(SslError != SSL_ERROR_WANT_READ && SslError != SSL_ERROR_WANT_WRITE)
+		{
+			SSL_free(pSsl);
+			SSL_CTX_free(pCtx);
+			QueueEvent("{\"type\":\"client.error\",\"message\":\"TLS connection failed.\"}");
+			return;
+		}
+		std::this_thread::sleep_for(20ms);
+	}
+
+	if(m_StopThread)
+	{
+		SSL_free(pSsl);
+		SSL_CTX_free(pCtx);
+		return;
+	}
+#else
 	BIO *pBio = BIO_new_ssl_connect(pCtx);
 	if(!pBio)
 	{
@@ -680,10 +726,15 @@ void CIrcChat::NetworkMain()
 		QueueEvent("{\"type\":\"client.error\",\"message\":\"TLS handshake failed.\"}");
 		return;
 	}
+#endif
 	X509 *pCert = SSL_get_peer_certificate(pSsl);
 	if(!pCert)
 	{
+#if defined(CONF_PLATFORM_ANDROID)
+		SSL_free(pSsl);
+#else
 		BIO_free_all(pBio);
+#endif
 		SSL_CTX_free(pCtx);
 		QueueEvent("{\"type\":\"client.error\",\"message\":\"Server did not present a certificate.\"}");
 		return;
@@ -709,12 +760,35 @@ void CIrcChat::NetworkMain()
 		for(const std::string &Line : vOutgoing)
 		{
 			std::string WithNewline = Line + "\n";
+#if defined(CONF_PLATFORM_ANDROID)
+			while(!m_StopThread)
+			{
+				const int WriteResult = SSL_write(pSsl, WithNewline.data(), (int)WithNewline.size());
+				if(WriteResult > 0)
+					break;
+
+				const int SslError = SSL_get_error(pSsl, WriteResult);
+				if(SslError != SSL_ERROR_WANT_READ && SslError != SSL_ERROR_WANT_WRITE)
+				{
+					SSL_free(pSsl);
+					SSL_CTX_free(pCtx);
+					QueueEvent("{\"type\":\"client.error\",\"message\":\"BestGram connection closed.\"}");
+					return;
+				}
+				std::this_thread::sleep_for(20ms);
+			}
+#else
 			BIO_write(pBio, WithNewline.data(), (int)WithNewline.size());
+#endif
 		}
 
 		for(;;)
 		{
+#if defined(CONF_PLATFORM_ANDROID)
+			const int Read = SSL_read(pSsl, aBuf, sizeof(aBuf));
+#else
 			const int Read = BIO_read(pBio, aBuf, sizeof(aBuf));
+#endif
 			if(Read > 0)
 			{
 				ReadBuffer.append(aBuf, Read);
@@ -729,19 +803,37 @@ void CIrcChat::NetworkMain()
 				}
 				continue;
 			}
+#if defined(CONF_PLATFORM_ANDROID)
+			if(Read <= 0)
+			{
+				const int SslError = SSL_get_error(pSsl, Read);
+				if(SslError != SSL_ERROR_WANT_READ && SslError != SSL_ERROR_WANT_WRITE)
+				{
+					SSL_free(pSsl);
+					SSL_CTX_free(pCtx);
+					QueueEvent("{\"type\":\"client.error\",\"message\":\"BestGram connection closed.\"}");
+					return;
+				}
+			}
+#else
 			if(Read <= 0 && !BIO_should_retry(pBio))
 			{
-				BIO_free_all(pBio);
+				SSL_free(pSsl);
 				SSL_CTX_free(pCtx);
 				QueueEvent("{\"type\":\"client.error\",\"message\":\"BestGram connection closed.\"}");
 				return;
 			}
+#endif
 			break;
 		}
 		std::unique_lock Lock(m_NetMutex);
 		m_NetCv.wait_for(Lock, 20ms, [&]() { return m_StopThread.load() || !m_vOutgoing.empty(); });
 	}
+#if defined(CONF_PLATFORM_ANDROID)
+	SSL_free(pSsl);
+#else
 	BIO_free_all(pBio);
+#endif
 	SSL_CTX_free(pCtx);
 #elif defined(CONF_FAMILY_WINDOWS)
 	CSchannelSocket Socket;
@@ -1000,7 +1092,8 @@ void CIrcChat::HandleServerLine(const char *pLine)
 		{
 			m_Messages.erase(std::remove_if(m_Messages.begin(), m_Messages.end(), [&](const SMessage &Msg) {
 				return Msg.m_RoomType == RoomType && Msg.m_RoomKey == RoomKey;
-			}), m_Messages.end());
+			}),
+				m_Messages.end());
 			for(const SMessage &Incoming : vIncoming)
 				m_Messages.push_back(Incoming);
 			m_HistoryExhausted = vIncoming.empty();

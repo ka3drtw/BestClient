@@ -3,8 +3,8 @@
 
 #include <base/math.h>
 
-#include <engine/shared/video.h>
 #include <engine/shared/config.h>
+#include <engine/shared/video.h>
 
 #include <game/client/gameclient.h>
 
@@ -15,35 +15,35 @@ std::unique_ptr<CRJelly> rJelly;
 
 namespace
 {
-constexpr float MIN_DELTA_TIME = 1.0f / 240.0f;
-constexpr float MAX_DELTA_TIME = 1.0f / 20.0f;
+	constexpr float MIN_DELTA_TIME = 1.0f / 240.0f;
+	constexpr float MAX_DELTA_TIME = 1.0f / 20.0f;
 
-vec2 NormalizeOr(vec2 Value, vec2 Fallback)
-{
-	const float ValueLength = length(Value);
-	if(ValueLength > 0.0001f)
-		return Value / ValueLength;
+	vec2 NormalizeOr(vec2 Value, vec2 Fallback)
+	{
+		const float ValueLength = length(Value);
+		if(ValueLength > 0.0001f)
+			return Value / ValueLength;
 
-	const float FallbackLength = length(Fallback);
-	if(FallbackLength > 0.0001f)
-		return Fallback / FallbackLength;
+		const float FallbackLength = length(Fallback);
+		if(FallbackLength > 0.0001f)
+			return Fallback / FallbackLength;
 
-	return vec2(0.0f, -1.0f);
-}
+		return vec2(0.0f, -1.0f);
+	}
 
-float DurationScale()
-{
-	const float Duration = g_Config.m_BcJellyTeeDuration / 100.0f;
-	return std::pow(std::clamp(Duration, 0.2f, 5.0f), 1.65f);
-}
+	float DurationScale()
+	{
+		const float Duration = g_Config.m_BcJellyTeeDuration / 100.0f;
+		return std::pow(std::clamp(Duration, 0.2f, 5.0f), 1.65f);
+	}
 
-void ClampDeform(JellyTee &Deform)
-{
-	Deform.m_BodyScale.x = std::clamp(Deform.m_BodyScale.x, 0.94f, 1.22f);
-	Deform.m_BodyScale.y = std::clamp(Deform.m_BodyScale.y, 0.74f, 1.22f);
-	Deform.m_FeetScale.x = std::clamp(Deform.m_FeetScale.x, 0.95f, 1.15f);
-	Deform.m_FeetScale.y = std::clamp(Deform.m_FeetScale.y, 0.70f, 1.10f);
-}
+	void ClampDeform(JellyTee &Deform)
+	{
+		Deform.m_BodyScale.x = std::clamp(Deform.m_BodyScale.x, 0.94f, 1.22f);
+		Deform.m_BodyScale.y = std::clamp(Deform.m_BodyScale.y, 0.74f, 1.22f);
+		Deform.m_FeetScale.x = std::clamp(Deform.m_FeetScale.x, 0.95f, 1.15f);
+		Deform.m_FeetScale.y = std::clamp(Deform.m_FeetScale.y, 0.70f, 1.10f);
+	}
 } // namespace
 
 CRJelly::CRJelly(CGameClient *pClient) :
@@ -97,7 +97,11 @@ JellyTee CRJelly::GetDeform(int ClientId, vec2 PrevVel, vec2 Vel, vec2 LookDir, 
 		return Deform;
 
 	pState->m_ClientId = ClientId;
-	if(m_pClient != nullptr && m_pClient->Client()->State() == IClient::STATE_DEMOPLAYBACK && IVideo::Current())
+	if(m_pClient != nullptr && m_pClient->Client()->State() == IClient::STATE_DEMOPLAYBACK
+#if defined(CONF_VIDEORECORDER)
+		&& IVideo::Current()
+#endif
+	)
 	{
 		const float DemoPlaybackTime = (m_pClient->Client()->PrevGameTick(0) + m_pClient->Client()->IntraGameTickSincePrev(0)) / (float)m_pClient->Client()->GameTickSpeed();
 		if(pState->m_HasLastDemoPlaybackTime)

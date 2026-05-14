@@ -16,10 +16,10 @@
 #include <game/client/animstate.h>
 #include <game/client/bc_ui_animations.h>
 #include <game/client/components/chat.h>
+#include <game/client/components/hud_layout.h>
 #include <game/client/components/media_decoder.h>
 #include <game/client/components/menu_background.h>
 #include <game/client/components/menus.h>
-#include <game/client/components/hud_layout.h>
 #include <game/client/components/sounds.h>
 #include <game/client/gameclient.h>
 #include <game/client/skin.h>
@@ -177,7 +177,7 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 		return;
 	}
 
-	CUIRect TabBar, Button;
+	CUIRect TabBar, TabButton;
 	MainView.HSplitTop(24.0f, &TabBar, &MainView);
 	const char *apTabNames[NUM_BESTCLIENT_TABS] = {
 		BCLocalize("Visuals"),
@@ -233,9 +233,9 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 		if(IsTabHidden(Tab))
 			continue;
 
-		TabBar.VSplitLeft(TabWidth, &Button, &TabBar);
+		TabBar.VSplitLeft(TabWidth, &TabButton, &TabBar);
 		const int Corners = VisibleIndex == 0 ? IGraphics::CORNER_L : (VisibleIndex == TabCount - 1 ? IGraphics::CORNER_R : IGraphics::CORNER_NONE);
-		if(DoButton_MenuTab(&s_aPageTabs[Tab], apTabNames[Tab], s_CurTab == Tab, &Button, Corners, nullptr, nullptr, nullptr, nullptr, 4.0f))
+		if(DoButton_MenuTab(&s_aPageTabs[Tab], apTabNames[Tab], s_CurTab == Tab, &TabButton, Corners, nullptr, nullptr, nullptr, nullptr, 4.0f))
 		{
 			s_CurTab = Tab;
 		}
@@ -1994,9 +1994,9 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 						char aBuf[256];
 						str_format(aBuf, sizeof(aBuf), "%s: %.2f ticks", BCLocalize("Prediction offset"), Value / 100.0f);
 
-						CUIRect Label, ScrollBar;
-						Button.VSplitMid(&Label, &ScrollBar, minimum(10.0f, Button.w * 0.05f));
-						Ui()->DoLabel(&Label, aBuf, Label.h * CUi::ms_FontmodHeight * 0.8f, TEXTALIGN_ML);
+						CUIRect SliderLabel, ScrollBar;
+						Button.VSplitMid(&SliderLabel, &ScrollBar, minimum(10.0f, Button.w * 0.05f));
+						Ui()->DoLabel(&SliderLabel, aBuf, SliderLabel.h * CUi::ms_FontmodHeight * 0.8f, TEXTALIGN_ML);
 
 						float Rel = (Value - Min) / (float)(Max - Min);
 						float NewRel = Ui()->DoScrollbarH(&g_Config.m_BcBestInputOffset, &ScrollBar, Rel);
@@ -2019,9 +2019,9 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 						char aBuf[256];
 						str_format(aBuf, sizeof(aBuf), "%s: %d%%", BCLocalize("Input smoothing"), Value);
 
-						CUIRect Label, ScrollBar;
-						Button.VSplitMid(&Label, &ScrollBar, minimum(10.0f, Button.w * 0.05f));
-						Ui()->DoLabel(&Label, aBuf, Label.h * CUi::ms_FontmodHeight * 0.8f, TEXTALIGN_ML);
+						CUIRect SliderLabel, ScrollBar;
+						Button.VSplitMid(&SliderLabel, &ScrollBar, minimum(10.0f, Button.w * 0.05f));
+						Ui()->DoLabel(&SliderLabel, aBuf, SliderLabel.h * CUi::ms_FontmodHeight * 0.8f, TEXTALIGN_ML);
 
 						float Rel = (Value - Min) / (float)(Max - Min);
 						float NewRel = Ui()->DoScrollbarH(&g_Config.m_BcBestInputSmoothing, &ScrollBar, Rel);
@@ -2044,9 +2044,9 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 						char aBuf[256];
 						str_format(aBuf, sizeof(aBuf), "%s: %d%%", BCLocalize("Latency compensation"), Value);
 
-						CUIRect Label, ScrollBar;
-						Button.VSplitMid(&Label, &ScrollBar, minimum(10.0f, Button.w * 0.05f));
-						Ui()->DoLabel(&Label, aBuf, Label.h * CUi::ms_FontmodHeight * 0.8f, TEXTALIGN_ML);
+						CUIRect SliderLabel, ScrollBar;
+						Button.VSplitMid(&SliderLabel, &ScrollBar, minimum(10.0f, Button.w * 0.05f));
+						Ui()->DoLabel(&SliderLabel, aBuf, SliderLabel.h * CUi::ms_FontmodHeight * 0.8f, TEXTALIGN_ML);
 
 						float Rel = (Value - Min) / (float)(Max - Min);
 						float NewRel = Ui()->DoScrollbarH(&g_Config.m_BcBestInputLatencyComp, &ScrollBar, Rel);
@@ -2272,7 +2272,7 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 			const float ExpandedTargetHeight = MarginSmall + LineSize;
 			const float ExpandedHeight = ExpandedTargetHeight * s_GoresModePhase;
 			const float ContentHeight = LineSize + MarginSmall + LineSize + ExpandedHeight;
-			CUIRect Content, Label, Button, Visible;
+			CUIRect Content, Label, Visible;
 			Column.HSplitTop(MarginBetweenSections, nullptr, &Column);
 			BeginBlock(Column, ContentHeight, Content);
 
@@ -2535,8 +2535,8 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 			UpdateRevealPhase(s_FinishPredictionTimePhase, ShowTimeExpanded);
 			const float BarColorHeight = FinishPredictionBarMode && g_Config.m_BcFinishPredictionBarCustomColor ? ColorPickerLineSize + ColorPickerSpacing : 0.0f;
 			const float ExpandedTargetHeight = FinishPredictionBarMode ?
-								      LineSize * 3.0f + BarColorHeight :
-								      LineSize * 4.0f + (MarginSmall + LineSize * 2.0f) * s_FinishPredictionTimePhase;
+								   LineSize * 3.0f + BarColorHeight :
+								   LineSize * 4.0f + (MarginSmall + LineSize * 2.0f) * s_FinishPredictionTimePhase;
 			const float ExpandedHeight = ExpandedTargetHeight * s_FinishPredictionPhase;
 			const float ContentHeight = LineSize + MarginSmall + LineSize + ExpandedHeight;
 			CUIRect Content, Label, Button, Row, Visible;

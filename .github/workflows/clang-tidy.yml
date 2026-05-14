@@ -71,12 +71,10 @@ jobs:
           echo "No changed C/C++ source files to check."
           exit 0
         fi
-        mkdir clang-tidy
-        cd clang-tidy
-        cmake -G Ninja \
+        cmake -S . -B clang-tidy -G Ninja \
           -DCMAKE_CXX_COMPILER=clang++-20 \
           -DCMAKE_C_COMPILER=clang-20 \
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
           -DCMAKE_BUILD_TYPE=Debug \
-          -Werror=dev ..
-        xargs -a ../changed_cpp_files.txt -d '\n' clang-tidy-20 -p . -warnings-as-errors='*'
+          -Werror=dev
+        xargs -a changed_cpp_files.txt -d '\n' clang-tidy-20 -p clang-tidy -warnings-as-errors='*'
