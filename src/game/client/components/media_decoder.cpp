@@ -78,14 +78,6 @@ namespace
 		return (int64_t)NewPos;
 	}
 
-	int64_t FfmpegFrameDurationTs(const AVFrame *pFrame)
-	{
-#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(59, 0, 100)
-		return pFrame->duration;
-#else
-		return pFrame->pkt_duration;
-#endif
-	}
 #endif
 
 	int ClampFrameDurationMs(int DurationMs)
@@ -561,15 +553,6 @@ namespace MediaDecoder
 					}
 				}
 
-				int FrameDurationMs = 0;
-				const int64_t FrameDurationTs = FfmpegFrameDurationTs(pFrame);
-				if(FrameDurationTs > 0)
-				{
-					const int64_t Rescaled = av_rescale_q(FrameDurationTs, pStream->time_base, AVRational{1, 1000});
-					if(Rescaled > 0)
-						FrameDurationMs = (int)minimum<int64_t>(Rescaled, MEDIA_MAX_FRAME_MS);
-				}
-
 				int PacketDurationMs = 0;
 				if(PacketDurationTs > 0)
 				{
@@ -579,25 +562,7 @@ namespace MediaDecoder
 				}
 
 				bool ImplicitTiming = false;
-				if(FrameDurationMs > 0)
-				{
-					DurationMs = FrameDurationMs;
-
-					// Some demuxers/decoders fill AVFrame::duration inconsistently (wrong time base),
-					// especially at the start. If PTS diff suggests a sane duration, prefer that.
-					constexpr int MaxReasonableMs = 200; // >= 5 FPS
-					if(PtsDiffMs > 0 && PtsDiffMs <= MaxReasonableMs && DurationMs > MaxReasonableMs && DurationMs >= PtsDiffMs * 4)
-					{
-						DurationMs = PtsDiffMs;
-						ImplicitTiming = true;
-					}
-					else if(PreferredFrameDurationMsFromRate > 0 && DurationMs > MaxReasonableMs && DurationMs >= PreferredFrameDurationMsFromRate * 4)
-					{
-						DurationMs = PreferredFrameDurationMsFromRate;
-						ImplicitTiming = true;
-					}
-				}
-				else if(PacketDurationMs > 0)
+				if(PacketDurationMs > 0)
 				{
 					DurationMs = PacketDurationMs;
 					ImplicitTiming = true;

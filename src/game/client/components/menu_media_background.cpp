@@ -241,7 +241,7 @@ void CMenuMediaBackground::ClearVideoState()
 	m_pPacket = nullptr;
 	m_pSwsCtx = nullptr;
 	m_VideoStream = -1;
-	m_LastVideoPts = 0;
+	m_LastVideoPts = AV_NOPTS_VALUE;
 	m_NextFrameTime = std::chrono::nanoseconds::zero();
 	m_vVideoUploadBuffer.clear();
 #endif
@@ -449,8 +449,8 @@ bool CMenuMediaBackground::DecodeNextVideoFrame(bool LoopOnEof)
 		while(avcodec_receive_frame(m_pCodecCtx, m_pFrame) == 0)
 		{
 			int DurationMs = MENU_MEDIA_DEFAULT_VIDEO_FRAME_MS;
-			int64_t DurationTs = m_pFrame->duration;
-			if(DurationTs <= 0 && m_LastVideoPts != AV_NOPTS_VALUE && m_pFrame->best_effort_timestamp != AV_NOPTS_VALUE)
+			int64_t DurationTs = 0;
+			if(m_LastVideoPts != AV_NOPTS_VALUE && m_pFrame->best_effort_timestamp != AV_NOPTS_VALUE)
 				DurationTs = m_pFrame->best_effort_timestamp - m_LastVideoPts;
 			if(DurationTs > 0)
 			{

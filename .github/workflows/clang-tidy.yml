@@ -77,5 +77,11 @@ jobs:
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
           -DCMAKE_BUILD_TYPE=Debug \
           -Werror=dev
+        mkdir -p clang-tidy/src/generated
+        python3 datasrc/compile.py client_content_header > clang-tidy/src/generated/client_data.h
+        python3 datasrc/compile.py content_types_header > clang-tidy/src/generated/data_types.h
+        python3 datasrc/compile.py network_header > clang-tidy/src/generated/protocol.h
+        python3 -m datasrc.seven.compile network_header > clang-tidy/src/generated/protocol7.h
+        python3 datasrc/crosscompile.py map_header > clang-tidy/src/generated/protocolglue.h
         cmake --build clang-tidy --target generate_protocol
         xargs -a changed_cpp_files.txt -d '\n' clang-tidy-20 -p clang-tidy -warnings-as-errors='*' -header-filter='^$' -checks='-misc-use-internal-linkage,-readability-static-definition-in-anonymous-namespace'

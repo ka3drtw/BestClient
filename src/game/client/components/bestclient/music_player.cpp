@@ -1758,13 +1758,13 @@ static float RoundedArtInset(float LocalX, float W, float Radius)
 
 	if(LocalX < Radius)
 	{
-		const float dx = Radius - LocalX;
-		return Radius - sqrtf(maximum(0.0f, Radius * Radius - dx * dx));
+		const float DeltaX = Radius - LocalX;
+		return Radius - sqrtf(maximum(0.0f, Radius * Radius - DeltaX * DeltaX));
 	}
 	if(LocalX > W - Radius)
 	{
-		const float x = LocalX - (W - Radius);
-		return Radius - sqrtf(maximum(0.0f, Radius * Radius - x * x));
+		const float DeltaX = LocalX - (W - Radius);
+		return Radius - sqrtf(maximum(0.0f, Radius * Radius - DeltaX * DeltaX));
 	}
 	return 0.0f;
 }
@@ -1798,7 +1798,7 @@ static void DrawRoundedTexture(IGraphics *pGraphics, IGraphics::CTextureHandle T
 		return;
 
 	const float Radius = minimum(minimum(Rounding, minimum(Rect.w, Rect.h) * 0.5f), 64.0f);
-	constexpr int NUM_SLICES = 32;
+	constexpr int NumSlices = 32;
 	float U0 = 0.0f;
 	float U1 = 1.0f;
 	float V0 = 0.0f;
@@ -1832,12 +1832,12 @@ static void DrawRoundedTexture(IGraphics *pGraphics, IGraphics::CTextureHandle T
 	pGraphics->TextureSet(Texture);
 	pGraphics->QuadsBegin();
 	pGraphics->SetColor(1.0f, 1.0f, 1.0f, 1.0f);
-	for(int i = 0; i < NUM_SLICES; ++i)
+	for(int i = 0; i < NumSlices; ++i)
 	{
-		const float SliceT0 = i / (float)NUM_SLICES;
-		const float SliceT1 = (i + 1) / (float)NUM_SLICES;
-		const float u0 = mix(U0, U1, SliceT0);
-		const float u1 = mix(U0, U1, SliceT1);
+		const float SliceT0 = i / (float)NumSlices;
+		const float SliceT1 = (i + 1) / (float)NumSlices;
+		const float SliceU0 = mix(U0, U1, SliceT0);
+		const float SliceU1 = mix(U0, U1, SliceT1);
 		const float LocalX0 = Rect.w * SliceT0;
 		const float LocalX1 = Rect.w * SliceT1;
 		const float Inset0 = RoundedArtInset(LocalX0, Rect.w, Radius);
@@ -1854,12 +1854,12 @@ static void DrawRoundedTexture(IGraphics *pGraphics, IGraphics::CTextureHandle T
 		const float RenderV1Top = std::clamp((TopRight.y - Rect.y) / maximum(Rect.h, 0.001f), 0.0f, 1.0f);
 		const float RenderV0Bottom = std::clamp((BottomLeft.y - Rect.y) / maximum(Rect.h, 0.001f), 0.0f, 1.0f);
 		const float RenderV1Bottom = std::clamp((BottomRight.y - Rect.y) / maximum(Rect.h, 0.001f), 0.0f, 1.0f);
-		const float v0Top = mix(V0, V1, RenderV0Top);
-		const float v1Top = mix(V0, V1, RenderV1Top);
-		const float v0Bottom = mix(V0, V1, RenderV0Bottom);
-		const float v1Bottom = mix(V0, V1, RenderV1Bottom);
+		const float SliceV0Top = mix(V0, V1, RenderV0Top);
+		const float SliceV1Top = mix(V0, V1, RenderV1Top);
+		const float SliceV0Bottom = mix(V0, V1, RenderV0Bottom);
+		const float SliceV1Bottom = mix(V0, V1, RenderV1Bottom);
 
-		pGraphics->QuadsSetSubsetFree(u0, v0Top, u1, v1Top, u0, v0Bottom, u1, v1Bottom);
+		pGraphics->QuadsSetSubsetFree(SliceU0, SliceV0Top, SliceU1, SliceV1Top, SliceU0, SliceV0Bottom, SliceU1, SliceV1Bottom);
 		const IGraphics::CFreeformItem Item(TopLeft, TopRight, BottomLeft, BottomRight);
 		pGraphics->QuadsDrawFreeform(&Item, 1);
 	}
@@ -1936,10 +1936,7 @@ public:
 		str_copy(m_aContextName, pContextName ? pContextName : "", sizeof(m_aContextName));
 	}
 
-	~CMusicPlayerArtDecodeJob() override
-	{
-		m_DecodedFrames.Free();
-	}
+	~CMusicPlayerArtDecodeJob() override = default;
 
 	bool Success() const { return m_Success; }
 	SMediaDecodedFrames &DecodedFrames() { return m_DecodedFrames; }
@@ -2393,7 +2390,7 @@ public:
 		return Position;
 	}
 
-	void AttachVisualizerData(SNowPlayingSnapshot &Snapshot)
+	void AttachVisualizerData(SNowPlayingSnapshot &Snapshot) const
 	{
 		Snapshot.m_HasVisualizer = false;
 		Snapshot.m_Visualizer = BestClientVisualizer::SVisualizerFrame();

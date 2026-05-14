@@ -1032,12 +1032,12 @@ void CMenus::RenderSettingsCustom(CUIRect MainView)
 					// Game-like preview: hookable/unhookable walls + freeze/death/unfreeze tiles
 					static const int COLS = 7, ROWS = 7;
 					static const unsigned char aLayout[ROWS][COLS] = {
-						{TILE_SOLID,  TILE_SOLID,  TILE_SOLID,  TILE_SOLID,  TILE_SOLID,  TILE_SOLID,  TILE_SOLID},
-						{TILE_SOLID,  0,           0,           0,           0,           0,           TILE_NOHOOK},
-						{TILE_SOLID,  TILE_FREEZE, 0,           0,           0,           0,           TILE_NOHOOK},
-						{TILE_SOLID,  0,           TILE_DEATH,  0,           TILE_UNFREEZE, 0,         TILE_NOHOOK},
-						{TILE_SOLID,  0,           0,           0,           0,           TILE_DFREEZE, TILE_NOHOOK},
-						{TILE_SOLID,  0,           0,           0,           0,           0,           TILE_NOHOOK},
+						{TILE_SOLID, TILE_SOLID, TILE_SOLID, TILE_SOLID, TILE_SOLID, TILE_SOLID, TILE_SOLID},
+						{TILE_SOLID, 0, 0, 0, 0, 0, TILE_NOHOOK},
+						{TILE_SOLID, TILE_FREEZE, 0, 0, 0, 0, TILE_NOHOOK},
+						{TILE_SOLID, 0, TILE_DEATH, 0, TILE_UNFREEZE, 0, TILE_NOHOOK},
+						{TILE_SOLID, 0, 0, 0, 0, TILE_DFREEZE, TILE_NOHOOK},
+						{TILE_SOLID, 0, 0, 0, 0, 0, TILE_NOHOOK},
 						{TILE_NOHOOK, TILE_NOHOOK, TILE_NOHOOK, TILE_NOHOOK, TILE_NOHOOK, TILE_NOHOOK, TILE_NOHOOK},
 					};
 
@@ -1046,8 +1046,8 @@ void CMenus::RenderSettingsCustom(CUIRect MainView)
 					float OffY = TextureRect.y + (TextureRect.h - ROWS * TileSize) / 2.0f;
 
 					// inset UVs by ~1.5px to avoid bilinear bleeding at tile boundaries
-					const float kInset = 1.5f / 1024.0f;
-					const float kTile = 1.0f / 16.0f;
+					const float KInset = 1.5f / 1024.0f;
+					const float KTile = 1.0f / 16.0f;
 
 					Graphics()->WrapClamp();
 					Graphics()->TextureSet(Tex);
@@ -1062,10 +1062,10 @@ void CMenus::RenderSettingsCustom(CUIRect MainView)
 								continue;
 							int Tx = Tile % 16;
 							int Ty = Tile / 16;
-							float U0 = Tx * kTile + kInset;
-							float V0 = Ty * kTile + kInset;
-							float U1 = U0 + kTile - kInset * 2;
-							float V1 = V0 + kTile - kInset * 2;
+							float U0 = Tx * KTile + KInset;
+							float V0 = Ty * KTile + KInset;
+							float U1 = U0 + KTile - KInset * 2;
+							float V1 = V0 + KTile - KInset * 2;
 							Graphics()->QuadsSetSubset(U0, V0, U1, V1);
 							IGraphics::CQuadItem Q(OffX + c * TileSize, OffY + r * TileSize, TileSize, TileSize);
 							Graphics()->QuadsDrawTL(&Q, 1);

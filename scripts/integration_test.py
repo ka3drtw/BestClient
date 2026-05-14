@@ -447,6 +447,14 @@ class Client(Runnable):
 				f"cl_input_fifo {self.fifo_name}",
 				"gfx_fullscreen 0",
 				"cl_save_settings 0",
+				"snd_enable 0",
+				"bc_menu_sfx 0",
+				"bc_voice_chat_enable 0",
+				"bc_irc_autoconnect 0",
+				"bc_irc_media_preview 0",
+				"bc_client_indicator_server_address 127.0.0.1:1",
+				"bc_client_indicator_browser_url http://127.0.0.1:1/users.json",
+				"bc_client_indicator_token_url http://127.0.0.1:1/token.json",
 			]
 			+ extra_args,
 		)

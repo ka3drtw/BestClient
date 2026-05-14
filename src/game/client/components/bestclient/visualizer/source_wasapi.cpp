@@ -12,7 +12,8 @@
 #include <thread>
 #include <vector>
 
-#if defined(CONF_FAMILY_WINDOWS)
+#if defined(CONF_FAMILY_WINDOWS) && __has_include(<winrt/base.h>)
+#define BC_VISUALIZER_HAS_WASAPI 1
 #include <winrt/base.h>
 #if !defined(NOBITMAP)
 #define BC_VISUALIZER_DEFINED_NOBITMAP
@@ -27,6 +28,8 @@
 #undef BC_VISUALIZER_DEFINED_NOBITMAP
 #undef NOBITMAP
 #endif
+#else
+#define BC_VISUALIZER_HAS_WASAPI 0
 #endif
 
 namespace BestClientVisualizer
@@ -36,7 +39,7 @@ namespace
 {
 	constexpr int WASAPI_ANALYZE_FRAMES = 1024;
 
-#if defined(CONF_FAMILY_WINDOWS)
+#if BC_VISUALIZER_HAS_WASAPI
 class CWasapiVisualizerSource final : public IVisualizerSource
 {
 	struct SWaveFormatInfo
@@ -472,7 +475,7 @@ public:
 
 std::unique_ptr<IVisualizerSource> CreateWasapiVisualizerSource()
 {
-#if defined(CONF_FAMILY_WINDOWS)
+#if BC_VISUALIZER_HAS_WASAPI
 	return std::make_unique<CWasapiVisualizerSource>();
 #else
 	return CreatePassiveVisualizerSource();

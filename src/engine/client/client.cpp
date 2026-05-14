@@ -4734,6 +4734,7 @@ static bool SaveUnknownCommandCallback(const char *pCommand, void *pUser)
 	return true;
 }
 
+#if defined(CONF_FAMILY_WINDOWS)
 static void NormalizeLineEndingsForWindows(const char *pInput, char *pOutput, size_t OutputSize)
 {
 	if(OutputSize == 0)
@@ -4757,6 +4758,7 @@ static void NormalizeLineEndingsForWindows(const char *pInput, char *pOutput, si
 
 	pOutput[OutPos] = '\0';
 }
+#endif
 
 #if defined(CONF_FAMILY_WINDOWS)
 namespace

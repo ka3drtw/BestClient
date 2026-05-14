@@ -100,7 +100,7 @@ ColorRGBA VoiceIconButtonColor(bool Active)
 	return Active ? ColorRGBA(0.18f, 0.20f, 0.24f, 0.34f) : ColorRGBA(0.02f, 0.02f, 0.03f, 0.22f);
 }
 
-bool ReadVoiceString(const uint8_t *pData, int DataSize, int &Offset, std::string &Out, int MaxLen = 128)
+[[maybe_unused]] bool ReadVoiceString(const uint8_t *pData, int DataSize, int &Offset, std::string &Out, int MaxLen = 128)
 {
 	uint16_t Size = 0;
 	if(!BestClientVoice::ReadU16(pData, DataSize, Offset, Size))
@@ -114,7 +114,7 @@ bool ReadVoiceString(const uint8_t *pData, int DataSize, int &Offset, std::strin
 	return true;
 }
 
-void WriteVoiceString(std::vector<uint8_t> &vOut, const std::string &Str, int MaxLen = 128)
+[[maybe_unused]] void WriteVoiceString(std::vector<uint8_t> &vOut, const std::string &Str, int MaxLen = 128)
 {
 	const uint16_t Size = (uint16_t)minimum<size_t>(Str.size(), (size_t)MaxLen);
 	BestClientVoice::WriteU16(vOut, Size);
@@ -896,13 +896,13 @@ void CVoiceChat::OnUpdate()
 	{
 		if(m_LastPerfReportTick == 0 || Now - m_LastPerfReportTick >= time_freq())
 		{
-			dbg_msg("voice/perf", "update last=%.3fms avg=%.3fms max=%.3fms samples=%lld socket=%d peers=%zu",
+			dbg_msg("voice/perf", "update last=%.3fms avg=%.3fms max=%.3fms samples=%lld socket=%d peers=%d",
 				m_LastUpdateCostTick * 1000.0 / (double)time_freq(),
 				m_UpdateSamples > 0 ? (m_TotalUpdateCostTick * 1000.0 / (double)time_freq()) / (double)m_UpdateSamples : 0.0,
 				m_MaxUpdateCostTick * 1000.0 / (double)time_freq(),
 				(long long)m_UpdateSamples,
 				m_Socket != nullptr ? 1 : 0,
-				m_Peers.size());
+				(int)m_Peers.size());
 			m_LastPerfReportTick = Now;
 			m_TotalUpdateCostTick = 0;
 			m_UpdateSamples = 0;
