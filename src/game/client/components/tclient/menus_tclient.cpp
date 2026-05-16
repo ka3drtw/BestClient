@@ -33,6 +33,7 @@
 #include <game/localization.h>
 
 #include <algorithm>
+#include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -2559,9 +2560,16 @@ void CMenus::RenderSettingsTClientConfigs(CUIRect MainView)
 	{
 		unsigned m_Value;
 	};
-	static std::unordered_map<const SConfigVariable *, SIntStage> s_StagedInts;
-	static std::unordered_map<const SConfigVariable *, SStrStage> s_StagedStrs;
-	static std::unordered_map<const SConfigVariable *, SColStage> s_StagedCols;
+	struct SConfigVariableScriptNameLess
+	{
+		bool operator()(const SConfigVariable *pLeft, const SConfigVariable *pRight) const
+		{
+			return str_comp(pLeft->m_pScriptName, pRight->m_pScriptName) < 0;
+		}
+	};
+	static std::map<const SConfigVariable *, SIntStage, SConfigVariableScriptNameLess> s_StagedInts;
+	static std::map<const SConfigVariable *, SStrStage, SConfigVariableScriptNameLess> s_StagedStrs;
+	static std::map<const SConfigVariable *, SColStage, SConfigVariableScriptNameLess> s_StagedCols;
 
 	struct SIntState
 	{

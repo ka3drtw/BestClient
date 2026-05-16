@@ -46,7 +46,7 @@ class CChat : public CComponent
 	enum
 	{
 		MAX_LINES = 64,
-		MAX_LINE_LENGTH = ::MAX_LINE_LENGTH,
+		CHAT_LINE_LENGTH = ::MAX_LINE_LENGTH,
 	};
 
 	enum class EMediaState
@@ -77,7 +77,7 @@ class CChat : public CComponent
 
 	class CMediaDecodeJob;
 
-	CLineInputBuffered<MAX_LINE_LENGTH> m_Input;
+	CLineInputBuffered<CHAT_LINE_LENGTH> m_Input;
 	class CLine
 	{
 	public:
@@ -93,7 +93,7 @@ class CChat : public CComponent
 		bool m_Whisper;
 		int m_NameColor;
 		char m_aName[64];
-		char m_aText[MAX_LINE_LENGTH];
+		char m_aText[CHAT_LINE_LENGTH];
 		bool m_Friend;
 		bool m_Highlighted;
 		std::optional<ColorRGBA> m_CustomColor;
@@ -192,10 +192,10 @@ class CChat : public CComponent
 	bool m_Show;
 	bool m_CompletionUsed;
 	int m_CompletionChosen;
-	char m_aCompletionBuffer[MAX_LINE_LENGTH];
+	char m_aCompletionBuffer[CHAT_LINE_LENGTH];
 	int m_PlaceholderOffset;
 	int m_PlaceholderLength;
-	static char ms_aDisplayText[MAX_LINE_LENGTH];
+	static char ms_aDisplayText[CHAT_LINE_LENGTH];
 	class CRateablePlayer
 	{
 	public:
@@ -235,7 +235,7 @@ class CChat : public CComponent
 	struct CPendingChatEntry
 	{
 		int m_Team;
-		char m_aText[MAX_LINE_LENGTH];
+		char m_aText[CHAT_LINE_LENGTH];
 	};
 	CHistoryEntry *m_pHistoryEntry;
 	CStaticRingBuffer<CHistoryEntry, 64 * 1024, CRingBufferBase::FLAG_RECYCLE> m_History;
@@ -243,11 +243,11 @@ class CChat : public CComponent
 	int64_t m_LastChatSend;
 	int64_t m_aLastSoundPlayed[CHAT_NUM];
 	bool m_IsInputCensored;
-	char m_aCurrentInputText[MAX_LINE_LENGTH];
+	char m_aCurrentInputText[CHAT_LINE_LENGTH];
 	bool m_EditingNewLine;
-	char m_aSavedInputText[MAX_LINE_LENGTH];
+	char m_aSavedInputText[CHAT_LINE_LENGTH];
 	bool m_SavedInputPending;
-	char m_aPreviousDisplayedInputText[MAX_LINE_LENGTH];
+	char m_aPreviousDisplayedInputText[CHAT_LINE_LENGTH];
 	int64_t m_ChatOpenAnimationStart;
 	struct STypingGlyphAnim
 	{
