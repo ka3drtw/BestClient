@@ -578,7 +578,10 @@ if(CLIENT AND VIDEORECORDER)
   set(FFMPEG_LIBRARIES "")
   set(FFMPEG_INCLUDE_DIRS "")
 
-  if(TARGET_OS STREQUAL "windows")
+  if(TARGET_OS STREQUAL "windows" AND MINGW)
+    message(STATUS "Disabling VIDEORECORDER for MinGW due to incompatible Windows FFmpeg import libraries")
+    set(VIDEORECORDER OFF CACHE BOOL "Enable video recording support via FFmpeg" FORCE)
+  elseif(TARGET_OS STREQUAL "windows")
     # Prefer standalone FFmpeg SDK path, keep legacy BestClient path as fallback.
     set(FFMPEG_CUSTOM_ROOTS
       "${PROJECT_SOURCE_DIR}/noxy-libs/ffmpeg-msvc"
