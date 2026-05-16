@@ -96,6 +96,7 @@ private:
 	bool IsPresenceEnabled() const;
 	const char *EffectiveSharedToken() const;
 	void DebugLog(const char *pText) const;
+	[[gnu::format(printf, 2, 3)]]
 	void DebugLogF(const char *pFormat, ...) const;
 	void SetPresenceBlockReason(const char *pReason);
 	void ClearPresenceBlockReason();

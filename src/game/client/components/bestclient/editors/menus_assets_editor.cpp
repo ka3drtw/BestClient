@@ -1293,7 +1293,7 @@ void CMenus::AssetsEditorApplyDrop(int TargetSlotIndex, const char *pDonorName, 
 		return;
 	}
 
-	auto AssignSlot = [this, pDonorName, &SourceSlot](SAssetsEditorPartSlot &Slot) {
+	auto AssignSlot = [pDonorName, &SourceSlot](SAssetsEditorPartSlot &Slot) {
 		str_copy(Slot.m_aSourceAsset, pDonorName);
 		Slot.m_SourceSpriteId = SourceSlot.m_SpriteId;
 		Slot.m_SrcX = SourceSlot.m_DstX;

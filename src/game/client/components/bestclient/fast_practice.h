@@ -135,6 +135,7 @@ private:
 	void RenderGhost(const SGhostData &Ghost, float Alpha) const;
 	void ReleaseBufferedInputState();
 
+	[[gnu::format(printf, 2, 3)]]
 	void EchoPractice(const char *pFormat, ...) const;
 	static bool ParseCommandArgs(const char *pLine, std::vector<std::string> &vArgs);
 	static bool ParseCoordinateToken(const char *pToken, float Base, float &Out);

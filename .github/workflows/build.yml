@@ -32,7 +32,7 @@ jobs:
         - name: macOS-latest
           os: macOS-latest
           cmake-args: -G Ninja -DSDL2_LIBRARY=$GITHUB_WORKSPACE/ddnet-libs/sdl/mac/libfat/SDL2.framework/Versions/A/SDL2 -DSDL2_INCLUDEDIR=$GITHUB_WORKSPACE/ddnet-libs/sdl/mac/libfat/SDL2.framework/Headers
-          cmake-init-env: CXXFLAGS="-Werror -Wno-unused-function -Wno-format-nonliteral -Wno-unused-lambda-capture -Wno-unused-const-variable"
+          cmake-init-env: CXXFLAGS="-Werror -Wno-unused-function"
           package-file: "*-macos.dmg"
         - name: windows-latest
           os: windows-latest
@@ -123,6 +123,10 @@ jobs:
         rustup target add x86_64-pc-windows-gnu
         rustup default stable-x86_64-pc-windows-gnu
         rustup set default-host x86_64-pc-windows-gnu
+        echo "RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu" >> $env:GITHUB_ENV
+        echo "CARGO_BUILD_TARGET=x86_64-pc-windows-gnu" >> $env:GITHUB_ENV
+        echo "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=C:\mingw64\bin\gcc.exe" >> $env:GITHUB_ENV
+        echo "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_AR=C:\mingw64\bin\ar.exe" >> $env:GITHUB_ENV
 
     - name: Install Vulkan SDK
       uses: humbletim/install-vulkan-sdk@v1.2
