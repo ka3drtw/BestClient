@@ -252,8 +252,13 @@ jobs:
       id: integration_test
       if: ${{ !contains(matrix.os, 'ubuntu') }}
       continue-on-error: true
+      shell: bash
       run: |
-        cp src/mastersrv/target/debug/mastersrv${{ matrix.executable-suffix }} headless
+        MASTERSRV_PATH="src/mastersrv/target/debug/mastersrv${{ matrix.executable-suffix }}"
+        if [[ -n "${CARGO_BUILD_TARGET:-}" ]]; then
+          MASTERSRV_PATH="src/mastersrv/target/${CARGO_BUILD_TARGET}/debug/mastersrv${{ matrix.executable-suffix }}"
+        fi
+        cp "$MASTERSRV_PATH" headless
         python scripts/integration_test.py --show-full-output --test-mastersrv headless
 
     - name: Run integration tests with Valgrind's Memcheck and code coverage
