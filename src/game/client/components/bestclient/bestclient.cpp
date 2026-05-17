@@ -23,7 +23,7 @@
 #include <string>
 #include <vector>
 
-static constexpr const char *BestClient_INFO_URL = "https://api.github.com/repos/RoflikBEST/bestdownload/releases?per_page=10";
+static constexpr const char *BestClient_INFO_URL = "https://api.github.com/repos/BestProjectTeam/BestClient/releases?per_page=10";
 static constexpr const char *BestClient_STREAMER_WORDS_FILE = "nwords.txt";
 static const char *const gs_apDefaultStreamerWords[] = {
 	"пидор",
@@ -194,6 +194,98 @@ static int CompareBestClientVersions(const char *pLeft, const char *pRight)
 	}
 
 	return str_comp_nocase(aLeft, aRight);
+}
+
+static std::string ToLowerAscii(const char *pStr)
+{
+	std::string Lower;
+	if(!pStr)
+		return Lower;
+
+	for(const unsigned char *p = reinterpret_cast<const unsigned char *>(pStr); *p != '\0'; ++p)
+		Lower.push_back(static_cast<char>(std::tolower(*p)));
+	return Lower;
+}
+
+static const char *GetBestClientReleaseVersionString(const json_value *pJson)
+{
+	if(!pJson || pJson->type != json_object)
+		return nullptr;
+
+	const char *pVersion = json_string_get(json_object_get(pJson, "tag_name"));
+	if(!pVersion)
+		pVersion = json_string_get(json_object_get(pJson, "name"));
+	return pVersion;
+}
+
+static int ScoreBestClientReleaseAsset(const char *pAssetName)
+{
+	if(!pAssetName)
+		return -1;
+
+	const std::string Lower = ToLowerAscii(pAssetName);
+	if(Lower.find("bestclient") == std::string::npos)
+		return -1;
+
+#if defined(CONF_FAMILY_WINDOWS)
+	if(!str_endswith_nocase(pAssetName, ".zip"))
+		return -1;
+	if(Lower.find("windows") == std::string::npos && Lower.find("win") == std::string::npos)
+		return -1;
+#elif defined(CONF_PLATFORM_ANDROID)
+	if(!str_endswith_nocase(pAssetName, ".apk"))
+		return -1;
+	if(Lower.find("android") == std::string::npos)
+		return -1;
+#elif defined(CONF_PLATFORM_LINUX)
+	if(!str_endswith_nocase(pAssetName, ".tar.xz"))
+		return -1;
+	if(Lower.find("linux") == std::string::npos)
+		return -1;
+#else
+	return -1;
+#endif
+
+	if(Lower.find("debug") != std::string::npos || Lower.find("symbols") != std::string::npos || Lower.find("source") != std::string::npos)
+		return -1;
+
+	int Score = 100;
+
+#if defined(CONF_FAMILY_WINDOWS)
+	if(Lower == "bestclient-windows.zip")
+		Score += 200;
+#elif defined(CONF_PLATFORM_ANDROID)
+	if(Lower == "bestclient-android.apk")
+		Score += 200;
+#elif defined(CONF_PLATFORM_LINUX)
+	if(Lower == "bestclient-linux.tar.xz")
+		Score += 200;
+#endif
+
+	return Score;
+}
+
+static bool ReleaseHasBestClientAssetForCurrentPlatform(const json_value *pJson)
+{
+	if(!pJson || pJson->type != json_object)
+		return false;
+
+	const json_value *pAssets = json_object_get(pJson, "assets");
+	if(!pAssets || pAssets->type != json_array)
+		return false;
+
+	int BestScore = -1;
+	for(int i = 0; i < json_array_length(pAssets); ++i)
+	{
+		const json_value *pAsset = json_array_get(pAssets, i);
+		if(!pAsset || pAsset->type != json_object)
+			continue;
+
+		const char *pName = json_string_get(json_object_get(pAsset, "name"));
+		BestScore = maximum(BestScore, ScoreBestClientReleaseAsset(pName));
+	}
+
+	return BestScore >= 0;
 }
 
 static void BuildBestClientInfoUrl(char *pBuf, int BufSize)
@@ -441,29 +533,28 @@ static const char *FindBestClientReleaseVersion(const json_value *pJson)
 
 	if(pJson->type == json_object)
 	{
-		const char *pVersion = json_string_get(json_object_get(pJson, "tag_name"));
-		if(!pVersion)
-			pVersion = json_string_get(json_object_get(pJson, "name"));
-		return pVersion;
+		return ReleaseHasBestClientAssetForCurrentPlatform(pJson) ? GetBestClientReleaseVersionString(pJson) : nullptr;
 	}
 
 	if(pJson->type == json_array)
 	{
-		const char *pBestVersion = nullptr;
+		const json_value *pBestRelease = nullptr;
+		char aBestVersion[64] = "";
 		for(int i = 0; i < json_array_length(pJson); ++i)
 		{
 			const json_value *pRelease = json_array_get(pJson, i);
 			if(!pRelease || pRelease->type != json_object)
 				continue;
-			const char *pVersion = json_string_get(json_object_get(pRelease, "tag_name"));
-			if(!pVersion)
-				pVersion = json_string_get(json_object_get(pRelease, "name"));
+			const char *pVersion = GetBestClientReleaseVersionString(pRelease);
 			if(!pVersion)
 				continue;
-			if(!pBestVersion || CompareBestClientVersions(pVersion, pBestVersion) > 0)
-				pBestVersion = pVersion;
+			if(!pBestRelease || CompareBestClientVersions(pVersion, aBestVersion) > 0)
+			{
+				pBestRelease = pRelease;
+				str_copy(aBestVersion, pVersion, sizeof(aBestVersion));
+			}
 		}
-		return pBestVersion;
+		return pBestRelease && ReleaseHasBestClientAssetForCurrentPlatform(pBestRelease) ? GetBestClientReleaseVersionString(pBestRelease) : nullptr;
 	}
 
 	return nullptr;

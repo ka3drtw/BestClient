@@ -18,7 +18,8 @@
 #include <string>
 #include <vector>
 
-static constexpr const char *GITHUB_RELEASES_URL = "https://api.github.com/repos/RoflikBEST/bestdownload/releases?per_page=10";
+static constexpr const char *GITHUB_RELEASES_URL = "https://api.github.com/repos/BestProjectTeam/BestClient/releases?per_page=10";
+static constexpr const char *GITHUB_LATEST_RELEASE_URL = "https://github.com/BestProjectTeam/BestClient/releases/latest";
 static constexpr const char *UPDATE_ARCHIVE_PATH = "update/bestclient-release.zip";
 static constexpr const char *UPDATE_SCRIPT_PATH = "update/apply_bestclient_update.ps1";
 
@@ -36,6 +37,17 @@ static std::string ToLowerAscii(const char *pStr)
 	for(const unsigned char *p = reinterpret_cast<const unsigned char *>(pStr); *p != '\0'; ++p)
 		Lower.push_back(static_cast<char>(std::tolower(*p)));
 	return Lower;
+}
+
+static const char *GetReleaseVersionString(const json_value *pJson)
+{
+	if(!pJson || pJson->type != json_object)
+		return nullptr;
+
+	const char *pVersion = json_string_get(json_object_get(pJson, "tag_name"));
+	if(!pVersion)
+		pVersion = json_string_get(json_object_get(pJson, "name"));
+	return pVersion;
 }
 
 static void NormalizeVersionString(const char *pVersion, char *pBuf, int BufSize)
@@ -111,16 +123,49 @@ static int CompareVersionStrings(const char *pLeft, const char *pRight)
 
 static int ScoreArchiveAsset(const char *pAssetName)
 {
-	if(!pAssetName || !str_endswith_nocase(pAssetName, ".zip"))
+	if(!pAssetName)
 		return -1;
 
 	const std::string Lower = ToLowerAscii(pAssetName);
-	int Score = 10;
+	if(Lower.find("bestclient") == std::string::npos)
+		return -1;
 
-	if(Lower.find("windows") != std::string::npos || Lower.find("win") != std::string::npos)
+#if defined(CONF_FAMILY_WINDOWS)
+	if(!str_endswith_nocase(pAssetName, ".zip"))
+		return -1;
+	if(Lower.find("windows") == std::string::npos && Lower.find("win") == std::string::npos)
+		return -1;
+#elif defined(CONF_PLATFORM_ANDROID)
+	if(!str_endswith_nocase(pAssetName, ".apk"))
+		return -1;
+	if(Lower.find("android") == std::string::npos)
+		return -1;
+#elif defined(CONF_PLATFORM_LINUX)
+	if(!str_endswith_nocase(pAssetName, ".tar.xz"))
+		return -1;
+	if(Lower.find("linux") == std::string::npos)
+		return -1;
+#else
+	return -1;
+#endif
+
+	if(Lower.find("debug") != std::string::npos || Lower.find("symbols") != std::string::npos || Lower.find("source") != std::string::npos)
+		return -1;
+
+	int Score = 100;
+
+#if defined(CONF_FAMILY_WINDOWS)
+	if(Lower == "bestclient-windows.zip")
+		Score += 200;
+	if(Lower.find("x64") != std::string::npos || Lower.find("64") != std::string::npos || Lower.find("amd64") != std::string::npos)
 		Score += 20;
-	if(Lower.find("bestclient") != std::string::npos)
-		Score += 10;
+#elif defined(CONF_PLATFORM_ANDROID)
+	if(Lower == "bestclient-android.apk")
+		Score += 200;
+#elif defined(CONF_PLATFORM_LINUX)
+	if(Lower == "bestclient-linux.tar.xz")
+		Score += 200;
+#endif
 
 #if defined(CONF_ARCH_AMD64)
 	if(Lower.find("x64") != std::string::npos || Lower.find("64") != std::string::npos || Lower.find("amd64") != std::string::npos)
@@ -129,9 +174,6 @@ static int ScoreArchiveAsset(const char *pAssetName)
 	if(Lower.find("x86") != std::string::npos || Lower.find("32") != std::string::npos)
 		Score += 10;
 #endif
-
-	if(Lower.find("linux") != std::string::npos || Lower.find("mac") != std::string::npos || Lower.find("android") != std::string::npos)
-		Score -= 10;
 
 	return Score;
 }
@@ -191,35 +233,24 @@ static bool ParseLatestRelease(json_value *pJson, char *pVersion, int VersionSiz
 
 	if(pJson->type == json_array)
 	{
-		bool Found = false;
+		const json_value *pBestRelease = nullptr;
 		char aBestVersion[64] = "";
-		char aBestArchiveName[128] = "";
-		char aBestArchiveUrl[2048] = "";
 		for(int i = 0; i < json_array_length(pJson); ++i)
 		{
 			const json_value *pRelease = json_array_get(pJson, i);
-			char aVersion[64];
-			char aArchiveName[128];
-			char aArchiveUrl[2048];
-			if(!ParseReleaseObject(pRelease, aVersion, sizeof(aVersion), aArchiveName, sizeof(aArchiveName), aArchiveUrl, sizeof(aArchiveUrl)))
+			const char *pVersion = GetReleaseVersionString(pRelease);
+			if(!pVersion)
 				continue;
 
-			if(!Found || CompareVersionStrings(aVersion, aBestVersion) > 0)
+			if(!pBestRelease || CompareVersionStrings(pVersion, aBestVersion) > 0)
 			{
-				Found = true;
-				str_copy(aBestVersion, aVersion, sizeof(aBestVersion));
-				str_copy(aBestArchiveName, aArchiveName, sizeof(aBestArchiveName));
-				str_copy(aBestArchiveUrl, aArchiveUrl, sizeof(aBestArchiveUrl));
+				pBestRelease = pRelease;
+				str_copy(aBestVersion, pVersion, sizeof(aBestVersion));
 			}
 		}
 
-		if(Found)
-		{
-			str_copy(pVersion, aBestVersion, VersionSize);
-			str_copy(pArchiveName, aBestArchiveName, ArchiveNameSize);
-			str_copy(pArchiveUrl, aBestArchiveUrl, ArchiveUrlSize);
-			return true;
-		}
+		if(pBestRelease)
+			return ParseReleaseObject(pBestRelease, pVersion, VersionSize, pArchiveName, ArchiveNameSize, pArchiveUrl, ArchiveUrlSize);
 	}
 
 	return false;
@@ -345,8 +376,11 @@ bool CUpdater::ParseReleaseTask()
 
 	if(!Parsed)
 	{
-		SetStatus("Release archive not found");
-		SetCurrentState(IUpdater::FAIL);
+		m_aLatestVersion[0] = '\0';
+		m_aArchiveName[0] = '\0';
+		m_aArchiveUrl[0] = '\0';
+		SetStatus("No compatible release found");
+		SetCurrentState(IUpdater::CLEAN);
 		return false;
 	}
 
@@ -499,6 +533,12 @@ void CUpdater::InitiateUpdate()
 	const EUpdaterState State = GetCurrentState();
 	if(State == IUpdater::GETTING_MANIFEST || State == IUpdater::DOWNLOADING)
 		return;
+
+#if !defined(CONF_FAMILY_WINDOWS)
+	if(m_pClient)
+		m_pClient->ViewLink(GITHUB_LATEST_RELEASE_URL);
+	return;
+#endif
 
 	StartReleaseFetch();
 }
