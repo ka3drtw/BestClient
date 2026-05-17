@@ -20,7 +20,7 @@ permissions:
   contents: write
 
 env:
-  CLIENT_NAME: TClient
+  CLIENT_NAME: BestClient
 
 jobs:
   build-cmake:
@@ -38,14 +38,14 @@ jobs:
           cmake-init-env: CXXFLAGS="-Werror -Wno-unused-function"
           package-file: "*-linux_x86_64.tar.xz"
           artifact-name: release-linux
-          asset-name: TClient-linux.tar.xz
+          asset-name: BestClient-linux.tar.xz
         - name: windows
           os: windows-latest
           cmake-args: -A x64 -DEXCEPTION_HANDLING=ON -DVULKAN=ON
           cmake-init-env: CXXFLAGS=/WX LDFLAGS="/WX /IGNORE:4098"
           package-file: "*-win64.zip"
           artifact-name: release-windows
-          asset-name: TClient-windows.zip
+          asset-name: BestClient-windows.zip
 
     steps:
     - uses: actions/checkout@v4
