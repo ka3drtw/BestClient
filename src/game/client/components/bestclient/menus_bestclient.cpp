@@ -2837,7 +2837,20 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 			BeginBlock(Column, ContentHeight, Content);
 
 			Content.HSplitTop(LineSize, &Label, &Content);
-			Ui()->DoLabel(&Label, BCLocalize("Rollback Demo"), HeadlineFontSize, TEXTALIGN_ML);
+			CUIRect TitleLabel, BadgeSlot, Badge;
+			Label.VSplitRight(56.0f, &TitleLabel, &BadgeSlot);
+			Ui()->DoLabel(&TitleLabel, BCLocalize("Rollback Demo"), HeadlineFontSize, TEXTALIGN_ML);
+			BadgeSlot.HMargin(1.5f, &Badge);
+			Badge.x += 6.0f;
+			Badge.w -= 6.0f;
+			Graphics()->DrawRect4(
+				Badge.x, Badge.y, Badge.w, Badge.h,
+				ColorRGBA(1.00f, 0.76f, 0.16f, 1.0f),
+				ColorRGBA(0.92f, 0.56f, 0.02f, 1.0f),
+				ColorRGBA(1.00f, 0.76f, 0.16f, 1.0f),
+				ColorRGBA(0.92f, 0.56f, 0.02f, 1.0f),
+				IGraphics::CORNER_ALL, 5.0f);
+			Ui()->DoLabel(&Badge, "NEW", 11.0f, TEXTALIGN_MC);
 			Content.HSplitTop(MarginSmall, nullptr, &Content);
 
 			if(DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_ClReplays, BCLocalize("Enable rollback demo recording"), &g_Config.m_ClReplays, &Content, LineSize))

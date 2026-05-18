@@ -3081,7 +3081,11 @@ void CClient::Update()
 					m_pConsole->Print(IConsole::OUTPUT_LEVEL_STANDARD, "replay", aBuf);
 
 					if(IsRollbackReplay)
-						GameClient()->Broadcast(Localize("Rollback saved!"));
+					{
+						char aBroadcast[64];
+						str_format(aBroadcast, sizeof(aBroadcast), Localize("Rollback saved: %ds"), g_Config.m_ClReplayLength);
+						GameClient()->Broadcast(aBroadcast);
+					}
 					else
 						GameClient()->Echo(Localize("Successfully saved the replay!"));
 				}
