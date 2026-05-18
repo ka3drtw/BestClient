@@ -576,6 +576,14 @@ void CMenus::RenderSettingsTee(CUIRect MainView)
 				ShouldRefresh = true;
 			}
 		}
+
+		SkinPrefix.HSplitTop(2.0f, nullptr, &SkinPrefix);
+		SkinPrefix.HSplitTop(20.0f, &Label, &SkinPrefix);
+		Ui()->DoLabel(&Label, Localize("Frozen skin"), 14.0f, TEXTALIGN_ML);
+
+		SkinPrefix.HSplitTop(20.0f, &Button, &SkinPrefix);
+		static CLineInput s_FrozenSkinInput(g_Config.m_TcFrozenSkin, sizeof(g_Config.m_TcFrozenSkin));
+		Ui()->DoClearableEditBox(&s_FrozenSkinInput, &Button, 14.0f);
 	}
 	CUIRect RandomColorsButton;
 
