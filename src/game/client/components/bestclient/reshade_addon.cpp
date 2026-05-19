@@ -37,6 +37,8 @@ struct SRuntimeState
 	bool m_HasWriteTime = false;
 	SDeepFryState m_LastAppliedState;
 	bool m_HasAppliedState = false;
+	bool m_MissingHandlesWarningShown = false;
+	bool m_PresetReadWarningShown = false;
 };
 
 std::unordered_map<reshade::api::effect_runtime *, SRuntimeState> gs_RuntimeStates;
@@ -161,11 +163,16 @@ bool ApplyDeepFryState(reshade::api::effect_runtime *pRuntime, const std::filesy
 	SDeepFryState NewState;
 	if(!ParseDeepFryState(PresetPath, NewState))
 	{
-		char aMessage[4608];
-		std::snprintf(aMessage, sizeof(aMessage), "[BestClient/ReShadeAddon] Failed to read preset state from: %s", PresetPath.string().c_str());
-		LogWarning(aMessage);
+		if(!RuntimeState.m_PresetReadWarningShown)
+		{
+			char aMessage[4608];
+			std::snprintf(aMessage, sizeof(aMessage), "[BestClient/ReShadeAddon] Failed to read preset state from: %s", PresetPath.string().c_str());
+			LogWarning(aMessage);
+			RuntimeState.m_PresetReadWarningShown = true;
+		}
 		return false;
 	}
+	RuntimeState.m_PresetReadWarningShown = false;
 
 	reshade::api::effect_technique Technique = {0};
 	reshade::api::effect_uniform_variable QualityUniform = {0};
@@ -173,11 +180,16 @@ bool ApplyDeepFryState(reshade::api::effect_runtime *pRuntime, const std::filesy
 	std::string EffectName;
 	if(!FindDeepFryHandles(pRuntime, Technique, QualityUniform, RedsUniform, EffectName))
 	{
-		char aMessage[4608];
-		std::snprintf(aMessage, sizeof(aMessage), "[BestClient/ReShadeAddon] DeepFry technique or uniforms are not available yet. Waiting for effect compilation.");
-		LogWarning(aMessage);
+		if(!RuntimeState.m_MissingHandlesWarningShown)
+		{
+			char aMessage[4608];
+			std::snprintf(aMessage, sizeof(aMessage), "[BestClient/ReShadeAddon] DeepFry technique or uniforms are not available yet. Waiting for effect compilation.");
+			LogWarning(aMessage);
+			RuntimeState.m_MissingHandlesWarningShown = true;
+		}
 		return false;
 	}
+	RuntimeState.m_MissingHandlesWarningShown = false;
 
 	pRuntime->set_uniform_value_float(QualityUniform, &NewState.m_Quality, 1);
 	pRuntime->set_uniform_value_float(RedsUniform, &NewState.m_Reds, 1);

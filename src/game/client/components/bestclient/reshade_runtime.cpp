@@ -1,5 +1,6 @@
 #include "reshade_runtime.h"
 
+#include <base/fs.h>
 #include <base/math.h>
 #include <base/system.h>
 
@@ -11,18 +12,103 @@
 
 namespace
 {
-bool BestClientReadBinaryTextFile(IStorage *pStorage, const char *pFilename, std::string &Text)
+enum class EBestClientReShadeAddonStatus
 {
-	char aPath[IO_MAX_PATH_LENGTH];
-	pStorage->GetBinaryPath(pFilename, aPath, sizeof(aPath));
+	LOG_MISSING = 0,
+	READY,
+	LIMITED_SUPPORT,
+	FAILED_INITIALIZATION,
+	PENDING_INITIALIZATION,
+};
 
-	char *pFileText = pStorage->ReadFileStr(aPath, IStorage::TYPE_ABSOLUTE);
+struct SBestClientReShadeLogCache
+{
+	char m_aPath[IO_MAX_PATH_LENGTH] = "";
+	time_t m_ModifiedTime = 0;
+	EBestClientReShadeAddonStatus m_Status = EBestClientReShadeAddonStatus::LOG_MISSING;
+	bool m_HasValue = false;
+};
+
+SBestClientReShadeLogCache gs_ReShadeLogCache;
+
+void BestClientInvalidateReShadeLogCache()
+{
+	gs_ReShadeLogCache = SBestClientReShadeLogCache{};
+}
+
+void BestClientGetBinaryPath(IStorage *pStorage, const char *pFilename, char *pPath, int PathSize)
+{
+	if(pPath == nullptr || PathSize <= 0)
+		return;
+
+	pPath[0] = '\0';
+	if(pStorage == nullptr)
+		return;
+
+	pStorage->GetBinaryPath(pFilename, pPath, PathSize);
+}
+
+bool BestClientReadAbsoluteTextFile(IStorage *pStorage, const char *pAbsolutePath, std::string &Text)
+{
+	char *pFileText = pStorage->ReadFileStr(pAbsolutePath, IStorage::TYPE_ABSOLUTE);
 	if(pFileText == nullptr)
 		return false;
 
 	Text = pFileText;
 	free(pFileText);
 	return true;
+}
+
+EBestClientReShadeAddonStatus BestClientParseReShadeAddonStatus(const std::string &LogText)
+{
+	if(str_find_nocase(LogText.c_str(), "[BestClient/ReShadeAddon] Add-on initialized.") != nullptr)
+		return EBestClientReShadeAddonStatus::READY;
+
+	if(str_find_nocase(LogText.c_str(), "limited add-on functionality") != nullptr)
+		return EBestClientReShadeAddonStatus::LIMITED_SUPPORT;
+
+	if(str_find_nocase(LogText.c_str(), "Failed to load add-on") != nullptr ||
+		str_find_nocase(LogText.c_str(), "Failed to register an event") != nullptr)
+	{
+		return EBestClientReShadeAddonStatus::FAILED_INITIALIZATION;
+	}
+
+	return EBestClientReShadeAddonStatus::PENDING_INITIALIZATION;
+}
+
+EBestClientReShadeAddonStatus BestClientQueryReShadeAddonStatus(IStorage *pStorage)
+{
+	char aLogPath[IO_MAX_PATH_LENGTH];
+	BestClientGetBinaryPath(pStorage, "ReShade.log", aLogPath, sizeof(aLogPath));
+	if(aLogPath[0] == '\0')
+	{
+		BestClientInvalidateReShadeLogCache();
+		return EBestClientReShadeAddonStatus::LOG_MISSING;
+	}
+
+	time_t ModifiedTime = 0;
+	time_t CreatedTime = 0;
+	if(fs_file_time(aLogPath, &CreatedTime, &ModifiedTime) != 0)
+	{
+		BestClientInvalidateReShadeLogCache();
+		return EBestClientReShadeAddonStatus::LOG_MISSING;
+	}
+
+	if(gs_ReShadeLogCache.m_HasValue && str_comp(gs_ReShadeLogCache.m_aPath, aLogPath) == 0 && gs_ReShadeLogCache.m_ModifiedTime == ModifiedTime)
+		return gs_ReShadeLogCache.m_Status;
+
+	std::string ReShadeLogText;
+	if(!BestClientReadAbsoluteTextFile(pStorage, aLogPath, ReShadeLogText))
+	{
+		BestClientInvalidateReShadeLogCache();
+		return EBestClientReShadeAddonStatus::LOG_MISSING;
+	}
+
+	str_copy(gs_ReShadeLogCache.m_aPath, aLogPath, sizeof(gs_ReShadeLogCache.m_aPath));
+	gs_ReShadeLogCache.m_ModifiedTime = ModifiedTime;
+	gs_ReShadeLogCache.m_Status = BestClientParseReShadeAddonStatus(ReShadeLogText);
+	gs_ReShadeLogCache.m_HasValue = true;
+	return gs_ReShadeLogCache.m_Status;
 }
 }
 
@@ -35,17 +121,6 @@ float BestClientReShadeDeepFryQualityValue(int QualityPercent)
 float BestClientReShadeDeepFryRedsValue(int RedsPercent)
 {
 	return std::clamp((float)RedsPercent / 100.0f, 0.0f, 1.0f);
-}
-
-bool BestClientReShadeRuntimeApplyDeepFry(IStorage *pStorage, bool Enabled, int QualityPercent, int RedsPercent, char *pError, int ErrorSize)
-{
-	(void)pStorage;
-	(void)Enabled;
-	(void)QualityPercent;
-	(void)RedsPercent;
-	if(pError != nullptr && ErrorSize > 0)
-		pError[0] = '\0';
-	return false;
 }
 
 bool BestClientReShadeRuntimeCommitDeepFry(IStorage *pStorage, bool Enabled, int QualityPercent, int RedsPercent, char *pError, int ErrorSize)
@@ -63,30 +138,22 @@ bool BestClientReShadeRuntimeCommitDeepFry(IStorage *pStorage, bool Enabled, int
 		return false;
 	}
 
-	std::string ReShadeLogText;
-	if(!BestClientReadBinaryTextFile(pStorage, "ReShade.log", ReShadeLogText))
+	switch(BestClientQueryReShadeAddonStatus(pStorage))
 	{
+	case EBestClientReShadeAddonStatus::READY:
+		return true;
+	case EBestClientReShadeAddonStatus::LOG_MISSING:
 		str_copy(pError, "ReShade.log is not available yet.", ErrorSize);
 		return false;
-	}
-
-	if(str_find_nocase(ReShadeLogText.c_str(), "Skipped loading add-on from 'E:\\BestClientAlpha\\build\\bestclient_reshade_live.addon' because this build of ReShade has only limited add-on functionality.") != nullptr ||
-		str_find_nocase(ReShadeLogText.c_str(), "limited add-on functionality") != nullptr)
-	{
+	case EBestClientReShadeAddonStatus::LIMITED_SUPPORT:
 		str_copy(pError, "The current session is still running with the old limited vulkan-1.dll. Close DDNet so the new ReShade runtime can be copied in.", ErrorSize);
 		return false;
-	}
-
-	if(str_find_nocase(ReShadeLogText.c_str(), "[BestClient/ReShadeAddon] Add-on initialized.") != nullptr)
-		return true;
-
-	if(str_find_nocase(ReShadeLogText.c_str(), "Failed to load add-on") != nullptr ||
-		str_find_nocase(ReShadeLogText.c_str(), "Failed to register an event") != nullptr)
-	{
+	case EBestClientReShadeAddonStatus::FAILED_INITIALIZATION:
 		str_copy(pError, "ReShade found the add-on, but it failed to initialize.", ErrorSize);
 		return false;
+	case EBestClientReShadeAddonStatus::PENDING_INITIALIZATION:
+	default:
+		str_copy(pError, "ReShade add-on has not initialized in this session yet.", ErrorSize);
+		return false;
 	}
-
-	str_copy(pError, "ReShade add-on has not initialized in this session yet.", ErrorSize);
-	return false;
 }

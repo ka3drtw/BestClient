@@ -1406,9 +1406,6 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 				NeedsPresetSync |= Ui()->DoScrollbarOption(&g_Config.m_BcReShadeDeepFryReds, &g_Config.m_BcReShadeDeepFryReds, &Row, BCLocalize("Red intensity"), 0, 100, &CUi::ms_LinearScrollbarScale, 0u, "%");
 			}
 
-			char aSilentLiveError[128];
-			BestClientReShadeRuntimeApplyDeepFry(Storage(), g_Config.m_BcReShadeDeepFry, g_Config.m_BcReShadeDeepFryQuality, g_Config.m_BcReShadeDeepFryReds, aSilentLiveError, sizeof(aSilentLiveError));
-
 			if(NeedsPresetSync)
 			{
 				char aError[128];
