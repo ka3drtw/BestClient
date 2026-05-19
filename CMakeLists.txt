@@ -4501,6 +4501,7 @@ if(TARGET_OS STREQUAL "windows")
       "${CMAKE_SOURCE_DIR}/other/reshade/vulkan-1.dll"
       "$<TARGET_FILE_DIR:game-client>"
     COMMAND ${CMAKE_COMMAND} -Dsrc=${CMAKE_SOURCE_DIR}/other/reshade/reshade-shaders -Ddst=$<TARGET_FILE_DIR:game-client>/data/reshade -P ${CMAKE_SOURCE_DIR}/cmake/RobocopyDirectory.cmake
+    COMMENT "Syncing ReShade runtime assets"
   )
   add_dependencies(game-client bestclient-reshade-live)
   add_dependencies(game-client bestclient-reshade-bridge)
