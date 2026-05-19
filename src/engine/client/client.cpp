@@ -3074,7 +3074,7 @@ void CClient::Update()
 			if(pJob->State() == IJob::STATE_DONE)
 			{
 				char aBuf[IO_MAX_PATH_LENGTH + 64];
-				const bool IsRollbackReplay = str_startswith(pJob->Destination(), "demos/replays/rollback/") != nullptr;
+				const bool IsRollbackReplay = str_startswith(pJob->Destination(), "demos/rollback/") != nullptr;
 				if(pJob->Success())
 				{
 					str_format(aBuf, sizeof(aBuf), "Successfully saved the replay to '%s'!", pJob->Destination());
@@ -4028,7 +4028,10 @@ void CClient::SaveReplay(const int Length, const char *pFilename)
 		}
 		else
 		{
-			str_format(aFilename, sizeof(aFilename), "demos/replays/%s.demo", pFilename);
+			if(str_startswith(pFilename, "rollback/"))
+				str_format(aFilename, sizeof(aFilename), "demos/%s.demo", pFilename);
+			else
+				str_format(aFilename, sizeof(aFilename), "demos/replays/%s.demo", pFilename);
 			IOHANDLE Handle = m_pStorage->OpenFile(aFilename, IOFLAG_WRITE, IStorage::TYPE_SAVE);
 			if(!Handle)
 			{

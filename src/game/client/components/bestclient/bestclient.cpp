@@ -891,7 +891,7 @@ void CBestClient::SaveRollback()
 		return;
 	}
 
-	Storage()->CreateFolder("demos/replays/rollback", IStorage::TYPE_SAVE);
+	Storage()->CreateFolder("demos/rollback", IStorage::TYPE_SAVE);
 
 	const int Length = std::clamp(g_Config.m_ClReplayLength, 10, 60);
 	char aTimestamp[20];
