@@ -33,6 +33,7 @@
 
 #include "reshade_runtime.h"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -104,22 +105,34 @@ struct SBestClientReShadeTechniqueMeta
 	std::string m_EffectName;
 };
 
+enum EBestClientReShadeTechniqueSort
+{
+	BESTCLIENT_RESHADE_SORT_NAME_ASC = 0,
+	BESTCLIENT_RESHADE_SORT_NAME_DESC,
+	BESTCLIENT_RESHADE_SORT_EFFECT_ASC,
+	NUM_BESTCLIENT_RESHADE_SORTS,
+};
+
 struct SBestClientReShadePresetState
 {
 	std::vector<std::string> m_vTechniqueSorting;
 	std::unordered_set<std::string> m_EnabledTokens;
 	std::unordered_map<std::string, std::unordered_map<std::string, std::string>> m_SectionValues;
+	bool m_HasTechniqueSorting = false;
+	bool m_HasEnabledState = false;
 };
 
 struct SBestClientReShadeUiCache
 {
 	std::unordered_map<std::string, std::string> m_EffectPaths;
 	std::unordered_map<std::string, std::vector<SBestClientReShadeUniformMeta>> m_UniformsByEffect;
+	std::vector<SBestClientReShadeTechniqueMeta> m_vTechniqueIndex;
 	char m_aPresetPath[IO_MAX_PATH_LENGTH] = "";
 	char m_aSettingsPath[IO_MAX_PATH_LENGTH] = "";
 	time_t m_PresetModifiedTime = 0;
 	time_t m_SettingsModifiedTime = 0;
 	bool m_HasEffectIndex = false;
+	bool m_HasTechniqueIndex = false;
 	bool m_HasPresetCache = false;
 	SBestClientReShadePresetState m_PresetState;
 	std::string m_StatusText;
@@ -148,6 +161,7 @@ static std::string BestClientStripQuotes(std::string Text)
 
 static std::vector<std::string> BestClientSplitCommaSeparated(const std::string &Text);
 static std::string BestClientFormatReShadeFloat(float Value);
+static std::unordered_set<std::string> BestClientBuildTrackedReShadeEffectSet(const SBestClientReShadePresetState &PresetState);
 
 static bool BestClientTryParseFloatText(const std::string &Text, float &Value)
 {
@@ -397,14 +411,19 @@ static bool BestClientParseReShadePresetText(const std::string &PresetText, SBes
 		if(CurrentSection.empty())
 		{
 			if(Key == "TechniqueSorting")
+			{
 				ParsedPresetState.m_vTechniqueSorting = BestClientSplitCommaSeparated(Value);
+				ParsedPresetState.m_HasTechniqueSorting = true;
+			}
 			else if(Key == "Techniques")
 			{
+				ParsedPresetState.m_HasEnabledState = true;
 				for(const std::string &Token : BestClientSplitCommaSeparated(Value))
 					ParsedPresetState.m_EnabledTokens.insert(Token);
 			}
 			else if(Key == "EnabledShader")
 			{
+				ParsedPresetState.m_HasEnabledState = true;
 				const std::string Token = BestClientTrimString(Value);
 				if(!Token.empty())
 					ParsedPresetState.m_EnabledTokens.insert(Token);
@@ -414,6 +433,7 @@ static bool BestClientParseReShadePresetText(const std::string &PresetText, SBes
 
 		if(CurrentSection == "EnabledShaders")
 		{
+			ParsedPresetState.m_HasEnabledState = true;
 			bool EnabledValue = true;
 			if(Value.empty() || !BestClientTryParseBoolText(Value, EnabledValue) || EnabledValue)
 				ParsedPresetState.m_EnabledTokens.insert(Key);
@@ -476,12 +496,15 @@ static std::string BestClientSerializeReShadePreset(const SBestClientReShadePres
 	std::string PresetText;
 	PresetText += "Techniques=" + BestClientBuildEnabledTechniqueList(PresetState) + "\n";
 	PresetText += "TechniqueSorting=" + BestClientBuildTechniqueSortingList(PresetState) + "\n";
+	const std::unordered_set<std::string> TrackedEffects = BestClientBuildTrackedReShadeEffectSet(PresetState);
 
 	std::vector<std::string> vSectionNames;
 	vSectionNames.reserve(PresetState.m_SectionValues.size());
 	for(const auto &[SectionName, SectionValues] : PresetState.m_SectionValues)
 	{
 		(void)SectionValues;
+		if(!TrackedEffects.empty() && TrackedEffects.find(SectionName) == TrackedEffects.end())
+			continue;
 		vSectionNames.push_back(SectionName);
 	}
 	std::sort(vSectionNames.begin(), vSectionNames.end());
@@ -560,7 +583,24 @@ static bool BestClientLoadReShadePreset(IStorage *pStorage, SBestClientReShadePr
 	{
 		SBestClientReShadePresetState SavedState;
 		BestClientParseReShadePresetText(SettingsText, SavedState);
-		ParsedPresetState.m_EnabledTokens = SavedState.m_EnabledTokens;
+		ParsedPresetState.m_vTechniqueSorting = SavedState.m_HasTechniqueSorting ? SavedState.m_vTechniqueSorting : std::vector<std::string>{};
+		if(SavedState.m_HasEnabledState)
+			ParsedPresetState.m_EnabledTokens = SavedState.m_EnabledTokens;
+		for(const auto &[SectionName, SectionValues] : SavedState.m_SectionValues)
+		{
+			for(const auto &[Key, Value] : SectionValues)
+				ParsedPresetState.m_SectionValues[SectionName][Key] = Value;
+		}
+	}
+	else
+	{
+		ParsedPresetState.m_vTechniqueSorting.clear();
+	}
+
+	for(const std::string &Token : ParsedPresetState.m_EnabledTokens)
+	{
+		if(std::find(ParsedPresetState.m_vTechniqueSorting.begin(), ParsedPresetState.m_vTechniqueSorting.end(), Token) == ParsedPresetState.m_vTechniqueSorting.end())
+			ParsedPresetState.m_vTechniqueSorting.push_back(Token);
 	}
 
 	str_copy(gs_BestClientReShadeUiCache.m_aPresetPath, aPresetAbsolutePath, sizeof(gs_BestClientReShadeUiCache.m_aPresetPath));
@@ -580,6 +620,9 @@ static bool BestClientSaveReShadeSettings(IStorage *pStorage, const SBestClientR
 {
 	std::string SettingsText;
 	SettingsText += "; Delete any line below to disable a broken screen-wide shader manually.\n";
+	SettingsText += "Techniques=" + BestClientBuildEnabledTechniqueList(PresetState) + "\n";
+	SettingsText += "TechniqueSorting=" + BestClientBuildTechniqueSortingList(PresetState) + "\n";
+	const std::unordered_set<std::string> TrackedEffects = BestClientBuildTrackedReShadeEffectSet(PresetState);
 	SettingsText += "[EnabledShaders]\n";
 	for(const std::string &Token : PresetState.m_vTechniqueSorting)
 	{
@@ -590,6 +633,42 @@ static bool BestClientSaveReShadeSettings(IStorage *pStorage, const SBestClientR
 	{
 		if(std::find(PresetState.m_vTechniqueSorting.begin(), PresetState.m_vTechniqueSorting.end(), Token) == PresetState.m_vTechniqueSorting.end())
 			SettingsText += Token + "=1\n";
+	}
+
+	std::vector<std::string> vSectionNames;
+	vSectionNames.reserve(PresetState.m_SectionValues.size());
+	for(const auto &[SectionName, SectionValues] : PresetState.m_SectionValues)
+	{
+		(void)SectionValues;
+		if(!TrackedEffects.empty() && TrackedEffects.find(SectionName) == TrackedEffects.end())
+			continue;
+		vSectionNames.push_back(SectionName);
+	}
+	std::sort(vSectionNames.begin(), vSectionNames.end());
+
+	for(const std::string &SectionName : vSectionNames)
+	{
+		const auto SectionIt = PresetState.m_SectionValues.find(SectionName);
+		if(SectionIt == PresetState.m_SectionValues.end() || SectionIt->second.empty())
+			continue;
+
+		SettingsText += "\n[" + SectionName + "]\n";
+		std::vector<std::string> vKeys;
+		vKeys.reserve(SectionIt->second.size());
+		for(const auto &[Key, Value] : SectionIt->second)
+		{
+			(void)Value;
+			vKeys.push_back(Key);
+		}
+		std::sort(vKeys.begin(), vKeys.end());
+
+		for(const std::string &Key : vKeys)
+		{
+			const auto ValueIt = SectionIt->second.find(Key);
+			if(ValueIt == SectionIt->second.end())
+				continue;
+			SettingsText += Key + "=" + ValueIt->second + "\n";
+		}
 	}
 
 	IOHANDLE File = pStorage->OpenFile(gs_pBestClientReShadeSettingsPath, IOFLAG_WRITE, IStorage::TYPE_SAVE);
@@ -658,27 +737,43 @@ static std::string BestClientBuildTechniqueToken(const std::string &TechniqueNam
 	return TechniqueName + "@" + EffectName;
 }
 
+static SBestClientReShadeTechniqueMeta BestClientBuildReShadeTechniqueMetaFromToken(const std::string &Token)
+{
+	SBestClientReShadeTechniqueMeta Technique;
+	Technique.m_Token = Token;
+	const size_t SeparatorPos = Token.find('@');
+	if(SeparatorPos == std::string::npos)
+	{
+		Technique.m_TechniqueName = Token;
+	}
+	else
+	{
+		Technique.m_TechniqueName = Token.substr(0, SeparatorPos);
+		Technique.m_EffectName = Token.substr(SeparatorPos + 1);
+	}
+	return Technique;
+}
+
 static std::vector<SBestClientReShadeTechniqueMeta> BestClientBuildReShadeTechniqueList(const SBestClientReShadePresetState &PresetState)
 {
 	std::vector<SBestClientReShadeTechniqueMeta> vTechniques;
 	vTechniques.reserve(PresetState.m_vTechniqueSorting.size());
 	for(const std::string &Token : PresetState.m_vTechniqueSorting)
-	{
-		SBestClientReShadeTechniqueMeta Technique;
-		Technique.m_Token = Token;
-		const size_t SeparatorPos = Token.find('@');
-		if(SeparatorPos == std::string::npos)
-		{
-			Technique.m_TechniqueName = Token;
-		}
-		else
-		{
-			Technique.m_TechniqueName = Token.substr(0, SeparatorPos);
-			Technique.m_EffectName = Token.substr(SeparatorPos + 1);
-		}
-		vTechniques.push_back(std::move(Technique));
-	}
+		vTechniques.push_back(BestClientBuildReShadeTechniqueMetaFromToken(Token));
 	return vTechniques;
+}
+
+static std::unordered_set<std::string> BestClientBuildTrackedReShadeEffectSet(const SBestClientReShadePresetState &PresetState)
+{
+	std::unordered_set<std::string> TrackedEffects;
+	TrackedEffects.reserve(PresetState.m_vTechniqueSorting.size());
+	for(const std::string &Token : PresetState.m_vTechniqueSorting)
+	{
+		const SBestClientReShadeTechniqueMeta Technique = BestClientBuildReShadeTechniqueMetaFromToken(Token);
+		if(!Technique.m_EffectName.empty())
+			TrackedEffects.insert(Technique.m_EffectName);
+	}
+	return TrackedEffects;
 }
 
 static void BestClientBuildReShadeEffectIndex(IStorage *pStorage)
@@ -712,6 +807,264 @@ static void BestClientBuildReShadeEffectIndex(IStorage *pStorage)
 	}
 
 	gs_BestClientReShadeUiCache.m_HasEffectIndex = true;
+}
+
+static std::string BestClientSanitizeReShadeShaderText(const std::string &ShaderText)
+{
+	std::string Sanitized = ShaderText;
+	enum class EParseState
+	{
+		NORMAL,
+		LINE_COMMENT,
+		BLOCK_COMMENT,
+		STRING_LITERAL,
+		CHAR_LITERAL,
+	};
+
+	EParseState State = EParseState::NORMAL;
+	for(size_t Pos = 0; Pos < Sanitized.size(); ++Pos)
+	{
+		char &c = Sanitized[Pos];
+		switch(State)
+		{
+		case EParseState::NORMAL:
+			if(c == '/' && Pos + 1 < Sanitized.size() && Sanitized[Pos + 1] == '/')
+			{
+				c = ' ';
+				Sanitized[Pos + 1] = ' ';
+				++Pos;
+				State = EParseState::LINE_COMMENT;
+			}
+			else if(c == '/' && Pos + 1 < Sanitized.size() && Sanitized[Pos + 1] == '*')
+			{
+				c = ' ';
+				Sanitized[Pos + 1] = ' ';
+				++Pos;
+				State = EParseState::BLOCK_COMMENT;
+			}
+			else if(c == '"')
+			{
+				c = ' ';
+				State = EParseState::STRING_LITERAL;
+			}
+			else if(c == '\'')
+			{
+				c = ' ';
+				State = EParseState::CHAR_LITERAL;
+			}
+			break;
+		case EParseState::LINE_COMMENT:
+			if(c != '\r' && c != '\n')
+				c = ' ';
+			else
+				State = EParseState::NORMAL;
+			break;
+		case EParseState::BLOCK_COMMENT:
+			if(c == '*' && Pos + 1 < Sanitized.size() && Sanitized[Pos + 1] == '/')
+			{
+				c = ' ';
+				Sanitized[Pos + 1] = ' ';
+				++Pos;
+				State = EParseState::NORMAL;
+			}
+			else if(c != '\r' && c != '\n')
+			{
+				c = ' ';
+			}
+			break;
+		case EParseState::STRING_LITERAL:
+			if(c == '\\' && Pos + 1 < Sanitized.size())
+			{
+				c = ' ';
+				if(Sanitized[Pos + 1] != '\r' && Sanitized[Pos + 1] != '\n')
+					Sanitized[Pos + 1] = ' ';
+				++Pos;
+			}
+			else if(c == '"')
+			{
+				c = ' ';
+				State = EParseState::NORMAL;
+			}
+			else if(c != '\r' && c != '\n')
+			{
+				c = ' ';
+			}
+			break;
+		case EParseState::CHAR_LITERAL:
+			if(c == '\\' && Pos + 1 < Sanitized.size())
+			{
+				c = ' ';
+				if(Sanitized[Pos + 1] != '\r' && Sanitized[Pos + 1] != '\n')
+					Sanitized[Pos + 1] = ' ';
+				++Pos;
+			}
+			else if(c == '\'')
+			{
+				c = ' ';
+				State = EParseState::NORMAL;
+			}
+			else if(c != '\r' && c != '\n')
+			{
+				c = ' ';
+			}
+			break;
+		}
+	}
+
+	return Sanitized;
+}
+
+static std::vector<SBestClientReShadeTechniqueMeta> BestClientParseReShadeTechniqueMetadata(const std::string &ShaderText, const std::string &EffectName)
+{
+	const auto IsIdentifierStart = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
+	const auto IsIdentifierChar = [&](char c) { return IsIdentifierStart(c) || (c >= '0' && c <= '9'); };
+
+	std::vector<SBestClientReShadeTechniqueMeta> vTechniques;
+	std::unordered_set<std::string> SeenTokens;
+	const std::string SanitizedText = BestClientSanitizeReShadeShaderText(ShaderText);
+
+	for(size_t Pos = 0; Pos < SanitizedText.size();)
+	{
+		if(!IsIdentifierStart(SanitizedText[Pos]))
+		{
+			++Pos;
+			continue;
+		}
+
+		const size_t KeywordStart = Pos;
+		while(Pos < SanitizedText.size() && IsIdentifierChar(SanitizedText[Pos]))
+			++Pos;
+
+		if(SanitizedText.compare(KeywordStart, Pos - KeywordStart, "technique") != 0)
+			continue;
+
+		while(Pos < SanitizedText.size() && (SanitizedText[Pos] == ' ' || SanitizedText[Pos] == '\t' || SanitizedText[Pos] == '\r' || SanitizedText[Pos] == '\n'))
+			++Pos;
+
+		if(Pos >= SanitizedText.size() || !IsIdentifierStart(SanitizedText[Pos]))
+			continue;
+
+		const size_t NameStart = Pos;
+		while(Pos < SanitizedText.size() && IsIdentifierChar(SanitizedText[Pos]))
+			++Pos;
+
+		const std::string TechniqueName = SanitizedText.substr(NameStart, Pos - NameStart);
+		const std::string Token = BestClientBuildTechniqueToken(TechniqueName, EffectName);
+		if(Token.empty() || !SeenTokens.insert(Token).second)
+			continue;
+
+		SBestClientReShadeTechniqueMeta Technique;
+		Technique.m_Token = Token;
+		Technique.m_TechniqueName = TechniqueName;
+		Technique.m_EffectName = EffectName;
+		vTechniques.push_back(std::move(Technique));
+	}
+
+	return vTechniques;
+}
+
+static void BestClientBuildReShadeTechniqueIndex(IStorage *pStorage)
+{
+	if(gs_BestClientReShadeUiCache.m_HasTechniqueIndex)
+		return;
+
+	BestClientBuildReShadeEffectIndex(pStorage);
+	gs_BestClientReShadeUiCache.m_vTechniqueIndex.clear();
+
+	std::vector<std::string> vEffectNames;
+	vEffectNames.reserve(gs_BestClientReShadeUiCache.m_EffectPaths.size());
+	for(const auto &[EffectName, Path] : gs_BestClientReShadeUiCache.m_EffectPaths)
+	{
+		(void)Path;
+		vEffectNames.push_back(EffectName);
+	}
+	std::sort(vEffectNames.begin(), vEffectNames.end(), [](const std::string &Left, const std::string &Right) {
+		return str_comp_nocase(Left.c_str(), Right.c_str()) < 0;
+	});
+
+	for(const std::string &EffectName : vEffectNames)
+	{
+		const auto EffectPathIt = gs_BestClientReShadeUiCache.m_EffectPaths.find(EffectName);
+		if(EffectPathIt == gs_BestClientReShadeUiCache.m_EffectPaths.end())
+			continue;
+
+		std::string ShaderText;
+		if(!BestClientReadAbsoluteTextFile(pStorage, EffectPathIt->second.c_str(), ShaderText))
+			continue;
+
+		std::vector<SBestClientReShadeTechniqueMeta> vTechniques = BestClientParseReShadeTechniqueMetadata(ShaderText, EffectName);
+		gs_BestClientReShadeUiCache.m_vTechniqueIndex.insert(gs_BestClientReShadeUiCache.m_vTechniqueIndex.end(), vTechniques.begin(), vTechniques.end());
+	}
+
+	gs_BestClientReShadeUiCache.m_HasTechniqueIndex = true;
+}
+
+static std::vector<SBestClientReShadeTechniqueMeta> BestClientBuildReShadeTechniqueCatalog(IStorage *pStorage, const SBestClientReShadePresetState &PresetState)
+{
+	BestClientBuildReShadeTechniqueIndex(pStorage);
+
+	std::vector<SBestClientReShadeTechniqueMeta> vTechniques = gs_BestClientReShadeUiCache.m_vTechniqueIndex;
+	std::unordered_set<std::string> SeenTokens;
+	SeenTokens.reserve(vTechniques.size() + PresetState.m_vTechniqueSorting.size());
+	for(const SBestClientReShadeTechniqueMeta &Technique : vTechniques)
+		SeenTokens.insert(Technique.m_Token);
+
+	for(const std::string &Token : PresetState.m_vTechniqueSorting)
+	{
+		if(SeenTokens.insert(Token).second)
+			vTechniques.push_back(BestClientBuildReShadeTechniqueMetaFromToken(Token));
+	}
+
+	return vTechniques;
+}
+
+static bool BestClientHasReShadeTechniqueInSorting(const SBestClientReShadePresetState &PresetState, const std::string &Token)
+{
+	return std::find(PresetState.m_vTechniqueSorting.begin(), PresetState.m_vTechniqueSorting.end(), Token) != PresetState.m_vTechniqueSorting.end();
+}
+
+static void BestClientAddReShadeTechniqueToPreset(SBestClientReShadePresetState &PresetState, const std::string &Token, const std::vector<SBestClientReShadeTechniqueMeta> &vTechniqueCatalog)
+{
+	if(BestClientHasReShadeTechniqueInSorting(PresetState, Token))
+		return;
+
+	int TokenOrder = (int)vTechniqueCatalog.size();
+	for(size_t Index = 0; Index < vTechniqueCatalog.size(); ++Index)
+	{
+		if(vTechniqueCatalog[Index].m_Token == Token)
+		{
+			TokenOrder = (int)Index;
+			break;
+		}
+	}
+
+	auto InsertPos = PresetState.m_vTechniqueSorting.end();
+	for(auto It = PresetState.m_vTechniqueSorting.begin(); It != PresetState.m_vTechniqueSorting.end(); ++It)
+	{
+		int CurrentOrder = (int)vTechniqueCatalog.size();
+		for(size_t Index = 0; Index < vTechniqueCatalog.size(); ++Index)
+		{
+			if(vTechniqueCatalog[Index].m_Token == *It)
+			{
+				CurrentOrder = (int)Index;
+				break;
+			}
+		}
+
+		if(CurrentOrder > TokenOrder)
+		{
+			InsertPos = It;
+			break;
+		}
+	}
+
+	PresetState.m_vTechniqueSorting.insert(InsertPos, Token);
+}
+
+static void BestClientRemoveReShadeTechniqueFromPreset(SBestClientReShadePresetState &PresetState, const std::string &Token)
+{
+	PresetState.m_vTechniqueSorting.erase(std::remove(PresetState.m_vTechniqueSorting.begin(), PresetState.m_vTechniqueSorting.end(), Token), PresetState.m_vTechniqueSorting.end());
+	PresetState.m_EnabledTokens.erase(Token);
 }
 
 static bool BestClientFindAnnotationValue(const std::string &Annotations, const char *pKey, std::string &Value)
@@ -1160,10 +1513,16 @@ static bool BestClientToggleReShadeRuntimeAndRestart(IStorage *pStorage, IClient
 static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorage, ITextRender *pTextRender, CUi *pUi, IClient *pClient, IGraphics *pGraphics, CUIRect MainView)
 {
 	const float LineSize = 20.0f;
-	const float MarginSmall = 5.0f;
+	const float MarginSmall = 4.0f;
+	const float MarginMedium = 8.0f;
+	const float MarginLarge = 10.0f;
 	const float HeaderLineSize = 24.0f;
-	const float SearchLabelWidth = 60.0f;
+	const float SearchLabelWidth = 52.0f;
 	const float EditBoxFontSize = 14.0f;
+	const float PanelRadius = 12.0f;
+	const float CardRadius = 10.0f;
+	const float IconButtonSize = 14.0f;
+	const float ControlsLineSize = 22.0f;
 	const bool IsVulkanBackend = str_find_nocase(pGraphics->GetVersionString(), "vulkan") != nullptr;
 
 	struct SUniformUiState
@@ -1178,21 +1537,34 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 	{
 		CButtonContainer m_ExpandButton;
 		CButtonContainer m_ResetButton;
+		CButtonContainer m_AddButton;
+		CButtonContainer m_RemoveButton;
 		int m_aIds[2] = {0, 0};
 		bool m_Expanded = false;
 		std::unordered_map<std::string, SUniformUiState> m_UniformStates;
 	};
 
 	static CLineInputBuffered<128> s_SearchInput;
-	static int s_ShowOnlyEnabled = 0;
-	static int s_AcceptEnable = 1;
+	static int s_AvailableSort = BESTCLIENT_RESHADE_SORT_NAME_ASC;
 	static int s_RuntimeEnabledToggle = 0;
-	static CScrollRegion s_ScrollRegion;
+	static CScrollRegion s_AvailableScrollRegion;
+	static CScrollRegion s_AddedScrollRegion;
+	static CUi::SDropDownState s_AvailableSortState;
+	static CScrollRegion s_AvailableSortScrollRegion;
 	static std::unordered_map<std::string, STechniqueUiState> s_TechniqueUiStates;
 	static std::string s_PendingAcceptToken;
 	static std::string s_PendingAcceptTechniqueName;
 	static int64_t s_PendingAcceptStartTick = 0;
 	static CUi::SConfirmPopupContext s_AcceptPopupContext;
+	static SBestClientReShadePresetState s_PendingSavePresetState;
+	static bool s_HasPendingSavePreset = false;
+	static int64_t s_PendingSavePresetTick = 0;
+
+	const char *apSortModes[NUM_BESTCLIENT_RESHADE_SORTS] = {
+		BCLocalize("Name A-Z"),
+		BCLocalize("Name Z-A"),
+		BCLocalize("Effect file"),
+	};
 
 	char aRuntimePath[IO_MAX_PATH_LENGTH];
 	char aDisabledRuntimePath[IO_MAX_PATH_LENGTH];
@@ -1200,12 +1572,57 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 	pStorage->GetBinaryPath(gs_pBestClientReShadeRuntimeDisabledFilename, aDisabledRuntimePath, sizeof(aDisabledRuntimePath));
 	const bool ReShadeRuntimeEnabled = BestClientFileExistsAbsolute(aRuntimePath) || !BestClientFileExistsAbsolute(aDisabledRuntimePath);
 
-	CUIRect ToggleRow;
-	MainView.HSplitTop(LineSize, &ToggleRow, &MainView);
+	MainView.HSplitTop(MarginSmall, nullptr, &MainView);
+
+	CUIRect LeftColumn, RightColumn;
+	MainView.VSplitMid(&LeftColumn, &RightColumn, MarginLarge);
+
+	CUIRect ControlsPanel, AvailablePanel;
+	LeftColumn.HSplitTop(122.0f, &ControlsPanel, &LeftColumn);
+	LeftColumn.HSplitTop(MarginMedium, nullptr, &LeftColumn);
+	AvailablePanel = LeftColumn;
+
+	auto DrawPanel = [&](const CUIRect &Rect) {
+		Rect.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.32f), IGraphics::CORNER_ALL, PanelRadius);
+	};
+
+	auto DrawPanelMessage = [&](CUIRect PanelRect, const char *pTitle, const char *pBody, bool Error) {
+		DrawPanel(PanelRect);
+		PanelRect.VMargin(18.0f, &PanelRect);
+		PanelRect.HMargin(18.0f, &PanelRect);
+
+		CUIRect TitleRect, BodyRect;
+		PanelRect.HSplitTop(32.0f, &TitleRect, &PanelRect);
+		PanelRect.HSplitTop(MarginMedium, nullptr, &PanelRect);
+		PanelRect.HSplitTop(84.0f, &BodyRect, &PanelRect);
+
+		if(Error)
+			pTextRender->TextColor(1.0f, 0.45f, 0.45f, 1.0f);
+		pUi->DoLabel(&TitleRect, pTitle, 22.0f, TEXTALIGN_ML);
+		pTextRender->TextColor(pTextRender->DefaultTextColor());
+		pUi->DoLabel(&BodyRect, pBody, 14.0f, TEXTALIGN_ML);
+	};
+
 	{
+		DrawPanel(ControlsPanel);
+		CUIRect Inner = ControlsPanel;
+		Inner.VMargin(10.0f, &Inner);
+		Inner.HMargin(10.0f, &Inner);
+
+		CUIRect TitleRow, RuntimeRow, AutoAcceptRow, FilterRow;
+		Inner.HSplitTop(HeaderLineSize, &TitleRow, &Inner);
+		Inner.HSplitTop(MarginSmall, nullptr, &Inner);
+		Inner.HSplitTop(ControlsLineSize, &RuntimeRow, &Inner);
+		Inner.HSplitTop(MarginSmall, nullptr, &Inner);
+		Inner.HSplitTop(ControlsLineSize, &AutoAcceptRow, &Inner);
+		Inner.HSplitTop(MarginSmall, nullptr, &Inner);
+		Inner.HSplitTop(ControlsLineSize, &FilterRow, &Inner);
+
+		pUi->DoLabel(&TitleRow, BCLocalize("ReShade controls"), 18.0f, TEXTALIGN_ML);
+
 		int RuntimeValue = ReShadeRuntimeEnabled ? 1 : 0;
-		const char *pLabel = ReShadeRuntimeEnabled ? BCLocalize("ReShade runtime enabled (restart to disable)") : BCLocalize("ReShade runtime disabled (restart to enable)");
-		if(pMenus->DoButton_CheckBox(&s_RuntimeEnabledToggle, pLabel, RuntimeValue, &ToggleRow))
+		const char *pRuntimeLabel = ReShadeRuntimeEnabled ? BCLocalize("ReShade runtime enabled (restart to disable)") : BCLocalize("ReShade runtime disabled (restart to enable)");
+		if(pMenus->DoButton_CheckBox(&s_RuntimeEnabledToggle, pRuntimeLabel, RuntimeValue, &RuntimeRow))
 		{
 			char aRestartError[256];
 			if(!BestClientToggleReShadeRuntimeAndRestart(pStorage, pClient, !ReShadeRuntimeEnabled, aRestartError, sizeof(aRestartError)))
@@ -1214,22 +1631,22 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 				gs_BestClientReShadeUiCache.m_StatusIsError = true;
 			}
 		}
+
+		pMenus->DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_BcReshadeAutoAccept, BCLocalize("Auto accept"), &g_Config.m_BcReshadeAutoAccept, &AutoAcceptRow, ControlsLineSize);
+		pMenus->DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_BcReshadeShowOnlyEnabled, BCLocalize("Show only enabled on the right"), &g_Config.m_BcReshadeShowOnlyEnabled, &FilterRow, ControlsLineSize);
 	}
 
 	if(!ReShadeRuntimeEnabled)
+	{
+		DrawPanelMessage(AvailablePanel, BCLocalize("ReShade is globally disabled"), BCLocalize("Enable the ReShade runtime above first. Until then this tab stays inactive."), false);
+		DrawPanelMessage(RightColumn, BCLocalize("Added effects"), BCLocalize("ReShade is globally disabled. Enable it above to manage added shaders here."), false);
 		return;
-
-	MainView.HSplitTop(MarginSmall, nullptr, &MainView);
+	}
 
 	if(!IsVulkanBackend)
 	{
-		CUIRect Title, Spacer, Body;
-		MainView.HSplitTop(32.0f, &Title, &MainView);
-		MainView.HSplitTop(12.0f, &Spacer, &MainView);
-		MainView.HSplitTop(72.0f, &Body, &MainView);
-
-		pUi->DoLabel(&Title, BCLocalize("ReShade requires the Vulkan renderer"), 24.0f, TEXTALIGN_MC);
-		pUi->DoLabel(&Body, BCLocalize("Switch the graphics backend to Vulkan in the client settings, then restart the game to use this tab."), 14.0f, TEXTALIGN_MC);
+		DrawPanelMessage(AvailablePanel, BCLocalize("Vulkan is required"), BCLocalize("Switch the graphics backend to Vulkan in the client settings and restart the game to use the ReShade tab."), true);
+		DrawPanelMessage(RightColumn, BCLocalize("Added effects"), BCLocalize("Effect controls are available only when the client is running on the Vulkan renderer."), false);
 		return;
 	}
 
@@ -1237,15 +1654,16 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 	SBestClientReShadePresetState PresetState;
 	if(!BestClientLoadReShadePreset(pStorage, PresetState, aPresetError, sizeof(aPresetError)))
 	{
-		CUIRect Label;
-		MainView.HSplitTop(LineSize, &Label, &MainView);
-		pTextRender->TextColor(1.0f, 0.4f, 0.4f, 1.0f);
-		pUi->DoLabel(&Label, aPresetError, 14.0f, TEXTALIGN_ML);
-		pTextRender->TextColor(pTextRender->DefaultTextColor());
+		DrawPanelMessage(AvailablePanel, BCLocalize("Failed to load preset"), aPresetError, true);
+		DrawPanelMessage(RightColumn, BCLocalize("Added effects"), BCLocalize("The right panel will be available again once the preset can be read."), false);
 		return;
 	}
 
-	const std::vector<SBestClientReShadeTechniqueMeta> vTechniques = BestClientBuildReShadeTechniqueList(PresetState);
+	if(s_HasPendingSavePreset)
+		PresetState = s_PendingSavePresetState;
+
+	BestClientBuildReShadeTechniqueIndex(pStorage);
+	const std::vector<SBestClientReShadeTechniqueMeta> &vTechniqueCatalog = gs_BestClientReShadeUiCache.m_vTechniqueIndex;
 	const char *pSearch = s_SearchInput.GetString();
 	const int64_t NowTick = time_get();
 	const int64_t AcceptTimeout = time_freq() * 5;
@@ -1269,6 +1687,10 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 	auto CurrentPresetState = [&]() -> const SBestClientReShadePresetState & {
 		return HasPresetChanges ? EditedPresetState : PresetState;
 	};
+	auto SetStatus = [&](const char *pText, bool Error) {
+		gs_BestClientReShadeUiCache.m_StatusText = pText;
+		gs_BestClientReShadeUiCache.m_StatusIsError = Error;
+	};
 	auto ShowAcceptPopup = [&](const std::string &TechniqueName, int SecondsRemaining) {
 		s_AcceptPopupContext.Reset();
 		s_AcceptPopupContext.YesNoButtons();
@@ -1285,15 +1707,13 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 		const int SecondsRemaining = maximum(0, 5 - (int)((NowTick - s_PendingAcceptStartTick) / time_freq()));
 		if(s_AcceptPopupContext.m_Result == CUi::SConfirmPopupContext::CONFIRMED)
 		{
-			gs_BestClientReShadeUiCache.m_StatusText = BCLocalize("The effect was confirmed and will stay enabled.");
-			gs_BestClientReShadeUiCache.m_StatusIsError = false;
+			SetStatus(BCLocalize("The effect was confirmed and will stay enabled."), false);
 			ClearPendingAccept();
 		}
 		else if(s_AcceptPopupContext.m_Result == CUi::SConfirmPopupContext::CANCELED)
 		{
 			BestClientSetReShadeTechniqueEnabled(EnsureEditedPreset(), s_PendingAcceptToken, false);
-			gs_BestClientReShadeUiCache.m_StatusText = BCLocalize("The effect was disabled because it was not confirmed.");
-			gs_BestClientReShadeUiCache.m_StatusIsError = true;
+			SetStatus(BCLocalize("The effect was disabled because it was not confirmed."), true);
 			ClearPendingAccept();
 		}
 		else if(pUi->IsPopupOpen(&s_AcceptPopupContext))
@@ -1314,62 +1734,64 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 		else if(s_PendingAcceptStartTick > 0 && NowTick - s_PendingAcceptStartTick >= AcceptTimeout)
 		{
 			BestClientSetReShadeTechniqueEnabled(EnsureEditedPreset(), s_PendingAcceptToken, false);
-			gs_BestClientReShadeUiCache.m_StatusText = BCLocalize("The effect was disabled automatically because it was not confirmed in time.");
-			gs_BestClientReShadeUiCache.m_StatusIsError = true;
+			SetStatus(BCLocalize("The effect was disabled automatically because it was not confirmed in time."), true);
 			pUi->ClosePopupMenu(&s_AcceptPopupContext);
 			ClearPendingAccept();
 		}
 	}
 
-	CUIRect AcceptRow, FilterRow, SearchRow, StatusRow, ListArea;
-	MainView.HSplitTop(LineSize, &AcceptRow, &MainView);
-	MainView.HSplitTop(MarginSmall, nullptr, &MainView);
-	MainView.HSplitTop(LineSize, &FilterRow, &MainView);
-	MainView.HSplitTop(MarginSmall, nullptr, &MainView);
-	MainView.HSplitTop(LineSize, &SearchRow, &MainView);
-	MainView.HSplitTop(MarginSmall, nullptr, &MainView);
-	MainView.HSplitTop(LineSize, &StatusRow, &MainView);
-	MainView.HSplitTop(MarginSmall, nullptr, &ListArea);
-
-	pMenus->DoButton_CheckBoxAutoVMarginAndSet(&s_AcceptEnable, BCLocalize("Accept enable (auto-disable unconfirmed effects after 5 seconds)"), &s_AcceptEnable, &AcceptRow, LineSize);
-	if(s_AcceptEnable == 0 && !s_PendingAcceptToken.empty())
+	if(g_Config.m_BcReshadeAutoAccept != 0 && !s_PendingAcceptToken.empty())
 		ClearPendingAccept();
 
-	pMenus->DoButton_CheckBoxAutoVMarginAndSet(&s_ShowOnlyEnabled, BCLocalize("Show only enabled"), &s_ShowOnlyEnabled, &FilterRow, LineSize);
+	std::vector<SBestClientReShadeTechniqueMeta> vAddedTechniques = BestClientBuildReShadeTechniqueList(CurrentPresetState());
+	std::unordered_set<std::string> AddedTokens;
+	AddedTokens.reserve(CurrentPresetState().m_vTechniqueSorting.size());
+	for(const std::string &Token : CurrentPresetState().m_vTechniqueSorting)
+		AddedTokens.insert(Token);
 
+	std::vector<SBestClientReShadeTechniqueMeta> vAvailableTechniques;
+	vAvailableTechniques.reserve(vTechniqueCatalog.size());
+	for(const SBestClientReShadeTechniqueMeta &Technique : vTechniqueCatalog)
 	{
-		CUIRect SearchLabel, SearchEdit;
-		SearchRow.VSplitLeft(SearchLabelWidth, &SearchLabel, &SearchEdit);
-		pUi->DoLabel(&SearchLabel, BCLocalize("Search"), 14.0f, TEXTALIGN_ML);
-		pUi->DoClearableEditBox(&s_SearchInput, &SearchEdit, EditBoxFontSize);
+		if(AddedTokens.find(Technique.m_Token) != AddedTokens.end())
+			continue;
+		if(pSearch[0] != '\0' &&
+			str_find_nocase(Technique.m_TechniqueName.c_str(), pSearch) == nullptr &&
+			str_find_nocase(Technique.m_EffectName.c_str(), pSearch) == nullptr &&
+			str_find_nocase(Technique.m_Token.c_str(), pSearch) == nullptr)
+		{
+			continue;
+		}
+		vAvailableTechniques.push_back(Technique);
 	}
 
-	{
-		char aStatus[256];
-		if(gs_BestClientReShadeUiCache.m_StatusText.empty())
-			str_format(aStatus, sizeof(aStatus), "Effects: %d", (int)vTechniques.size());
-		else
-			str_copy(aStatus, gs_BestClientReShadeUiCache.m_StatusText.c_str(), sizeof(aStatus));
+	std::sort(vAvailableTechniques.begin(), vAvailableTechniques.end(), [&](const SBestClientReShadeTechniqueMeta &Left, const SBestClientReShadeTechniqueMeta &Right) {
+		if(s_AvailableSort == BESTCLIENT_RESHADE_SORT_EFFECT_ASC)
+		{
+			const int EffectCompare = str_comp_nocase(Left.m_EffectName.c_str(), Right.m_EffectName.c_str());
+			if(EffectCompare != 0)
+				return EffectCompare < 0;
+		}
 
-		if(gs_BestClientReShadeUiCache.m_StatusIsError)
-			pTextRender->TextColor(1.0f, 0.4f, 0.4f, 1.0f);
-		else if(!gs_BestClientReShadeUiCache.m_StatusText.empty())
-			pTextRender->TextColor(0.55f, 1.0f, 0.55f, 1.0f);
-		pUi->DoLabel(&StatusRow, aStatus, 12.0f, TEXTALIGN_ML);
-		pTextRender->TextColor(pTextRender->DefaultTextColor());
+		const int NameCompare = str_comp_nocase(Left.m_TechniqueName.c_str(), Right.m_TechniqueName.c_str());
+		if(NameCompare != 0)
+		{
+			if(s_AvailableSort == BESTCLIENT_RESHADE_SORT_NAME_DESC)
+				return NameCompare > 0;
+			return NameCompare < 0;
+		}
+
+		return str_comp_nocase(Left.m_EffectName.c_str(), Right.m_EffectName.c_str()) < 0;
+	});
+
+	int NumVisibleAdded = 0;
+	for(const SBestClientReShadeTechniqueMeta &Technique : vAddedTechniques)
+	{
+		const bool Enabled = CurrentPresetState().m_EnabledTokens.find(Technique.m_Token) != CurrentPresetState().m_EnabledTokens.end();
+		if(g_Config.m_BcReshadeShowOnlyEnabled == 0 || Enabled)
+			++NumVisibleAdded;
 	}
 
-	vec2 ScrollOffset(0.0f, 0.0f);
-	CScrollRegionParams ScrollParams;
-	ScrollParams.m_Flags = CScrollRegionParams::FLAG_CONTENT_STATIC_WIDTH;
-	s_ScrollRegion.Begin(&ListArea, &ScrollOffset, &ScrollParams);
-
-	CUIRect Content = ListArea;
-	Content.y += ScrollOffset.y;
-	auto TakeContentRow = [&](CUIRect &Row) {
-		Content.HSplitTop(LineSize, &Row, &Content);
-		Content.HSplitTop(MarginSmall, nullptr, &Content);
-	};
 	auto GetUniformRowCount = [](const SBestClientReShadeUniformMeta &UniformMeta) {
 		if(UniformMeta.m_IsColor)
 			return 1;
@@ -1378,390 +1800,537 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 		return 1;
 	};
 
-	for(const SBestClientReShadeTechniqueMeta &Technique : vTechniques)
 	{
-		if(pSearch[0] != '\0' &&
-			str_find_nocase(Technique.m_TechniqueName.c_str(), pSearch) == nullptr &&
-			str_find_nocase(Technique.m_EffectName.c_str(), pSearch) == nullptr &&
-			str_find_nocase(Technique.m_Token.c_str(), pSearch) == nullptr)
+		DrawPanel(AvailablePanel);
+		CUIRect AvailableInner = AvailablePanel;
+		AvailableInner.VMargin(14.0f, &AvailableInner);
+		AvailableInner.HMargin(14.0f, &AvailableInner);
+
+		CUIRect HeaderRow, SortRow, SearchRow, StatusRow, ListArea;
+		AvailableInner.HSplitTop(HeaderLineSize, &HeaderRow, &AvailableInner);
+		AvailableInner.HSplitTop(MarginSmall, nullptr, &AvailableInner);
+		AvailableInner.HSplitTop(LineSize, &SortRow, &AvailableInner);
+		AvailableInner.HSplitTop(MarginSmall, nullptr, &AvailableInner);
+		AvailableInner.HSplitTop(LineSize, &SearchRow, &AvailableInner);
+		AvailableInner.HSplitTop(MarginSmall, nullptr, &AvailableInner);
+		AvailableInner.HSplitTop(LineSize, &StatusRow, &AvailableInner);
+		AvailableInner.HSplitTop(MarginSmall, nullptr, &ListArea);
+
+		char aAvailableTitle[128];
+		str_format(aAvailableTitle, sizeof(aAvailableTitle), "%s (%d)", BCLocalize("Available shaders"), (int)vAvailableTechniques.size());
+		pUi->DoLabel(&HeaderRow, aAvailableTitle, 18.0f, TEXTALIGN_ML);
+
 		{
-			continue;
+			CUIRect SortLabel, SortDropDown;
+			SortRow.VSplitLeft(SearchLabelWidth, &SortLabel, &SortDropDown);
+			pUi->DoLabel(&SortLabel, BCLocalize("Sort"), 14.0f, TEXTALIGN_ML);
+			s_AvailableSortState.m_SelectionPopupContext.m_pScrollRegion = &s_AvailableSortScrollRegion;
+			s_AvailableSort = pUi->DoDropDown(&SortDropDown, std::clamp(s_AvailableSort, 0, NUM_BESTCLIENT_RESHADE_SORTS - 1), apSortModes, NUM_BESTCLIENT_RESHADE_SORTS, s_AvailableSortState);
 		}
 
-		STechniqueUiState &TechniqueUi = s_TechniqueUiStates[Technique.m_Token];
-		const std::vector<SBestClientReShadeUniformMeta> &vUniforms = BestClientGetReShadeUniformMetadata(pStorage, Technique.m_EffectName);
-		const bool Enabled = CurrentPresetState().m_EnabledTokens.find(Technique.m_Token) != CurrentPresetState().m_EnabledTokens.end();
-		if(s_ShowOnlyEnabled != 0 && !Enabled)
-			continue;
-
-		const float BlockPaddingX = 16.0f;
-		const float BlockPaddingY = 14.0f;
-		float BlockInnerHeight = HeaderLineSize + MarginSmall;
-		if(TechniqueUi.m_Expanded)
 		{
-			BlockInnerHeight += LineSize + MarginSmall;
-			if(vUniforms.empty())
-				BlockInnerHeight += LineSize + MarginSmall;
+			CUIRect SearchLabel, SearchEdit;
+			SearchRow.VSplitLeft(SearchLabelWidth, &SearchLabel, &SearchEdit);
+			pUi->DoLabel(&SearchLabel, BCLocalize("Search"), 14.0f, TEXTALIGN_ML);
+			pUi->DoClearableEditBox(&s_SearchInput, &SearchEdit, EditBoxFontSize);
+		}
+
+		{
+			char aStatus[256];
+			if(gs_BestClientReShadeUiCache.m_StatusText.empty())
+				str_format(aStatus, sizeof(aStatus), "Added: %d  |  Available: %d", (int)vAddedTechniques.size(), (int)vAvailableTechniques.size());
 			else
-			{
-				for(const SBestClientReShadeUniformMeta &UniformMeta : vUniforms)
-					BlockInnerHeight += GetUniformRowCount(UniformMeta) * (LineSize + MarginSmall);
-			}
+				str_copy(aStatus, gs_BestClientReShadeUiCache.m_StatusText.c_str(), sizeof(aStatus));
+
+			if(gs_BestClientReShadeUiCache.m_StatusIsError)
+				pTextRender->TextColor(1.0f, 0.4f, 0.4f, 1.0f);
+			else if(!gs_BestClientReShadeUiCache.m_StatusText.empty())
+				pTextRender->TextColor(0.55f, 1.0f, 0.55f, 1.0f);
+			pUi->DoLabel(&StatusRow, aStatus, 12.0f, TEXTALIGN_ML);
+			pTextRender->TextColor(pTextRender->DefaultTextColor());
 		}
 
-		CUIRect BlockRect;
-		Content.HSplitTop(BlockInnerHeight + BlockPaddingY * 2.0f, &BlockRect, &Content);
-		Content.HSplitTop(MarginSmall, nullptr, &Content);
-		if(s_ScrollRegion.AddRect(BlockRect))
+		vec2 AvailableScrollOffset(0.0f, 0.0f);
+		CScrollRegionParams AvailableScrollParams;
+		AvailableScrollParams.m_Flags = CScrollRegionParams::FLAG_CONTENT_STATIC_WIDTH;
+		s_AvailableScrollRegion.Begin(&ListArea, &AvailableScrollOffset, &AvailableScrollParams);
+
+		CUIRect Content = ListArea;
+		Content.y += AvailableScrollOffset.y;
+		for(const SBestClientReShadeTechniqueMeta &Technique : vAvailableTechniques)
 		{
-			BlockRect.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.38f), IGraphics::CORNER_ALL, 12.0f);
-		}
+			STechniqueUiState &TechniqueUi = s_TechniqueUiStates[Technique.m_Token];
+			CUIRect ItemRect;
+			Content.HSplitTop(44.0f, &ItemRect, &Content);
+			Content.HSplitTop(MarginSmall, nullptr, &Content);
+			if(!s_AvailableScrollRegion.AddRect(ItemRect))
+				continue;
 
-		CUIRect TechniqueContent = BlockRect;
-		TechniqueContent.VMargin(BlockPaddingX, &TechniqueContent);
-		TechniqueContent.HMargin(BlockPaddingY, &TechniqueContent);
+			ItemRect.Draw(ColorRGBA(1.0f, 1.0f, 1.0f, 0.08f), IGraphics::CORNER_ALL, 8.0f);
 
-		CUIRect HeaderRect;
-		TechniqueContent.HSplitTop(HeaderLineSize, &HeaderRect, &TechniqueContent);
-		TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
-		const bool HeaderVisible = s_ScrollRegion.AddRect(HeaderRect);
-		if(HeaderVisible)
-		{
-			CUIRect ToggleRect, ResetRect, ExpandRect;
-			HeaderRect.VSplitRight(HeaderLineSize, &HeaderRect, &ExpandRect);
-			HeaderRect.VSplitRight(HeaderLineSize, &ToggleRect, &ResetRect);
+			CUIRect ItemInner = ItemRect;
+			ItemInner.VMargin(8.0f, &ItemInner);
+			ItemInner.HMargin(8.0f, &ItemInner);
 
-			int EnabledValue = Enabled ? 1 : 0;
-			if(pMenus->DoButton_CheckBox(&TechniqueUi.m_aIds[0], Technique.m_TechniqueName.c_str(), EnabledValue, &ToggleRect))
-			{
-				const bool NewEnabled = !Enabled;
-				BestClientSetReShadeTechniqueEnabled(EnsureEditedPreset(), Technique.m_Token, NewEnabled);
-				if(!NewEnabled && s_PendingAcceptToken == Technique.m_Token)
-				{
-					ClearPendingAccept();
-				}
-				else if(NewEnabled && s_AcceptEnable != 0)
-				{
-					if(!s_PendingAcceptToken.empty() && s_PendingAcceptToken != Technique.m_Token)
-						BestClientSetReShadeTechniqueEnabled(EnsureEditedPreset(), s_PendingAcceptToken, false);
-					s_PendingAcceptToken = Technique.m_Token;
-					s_PendingAcceptTechniqueName = Technique.m_TechniqueName;
-					s_PendingAcceptStartTick = NowTick;
-					ShowAcceptPopup(Technique.m_TechniqueName, 5);
-					gs_BestClientReShadeUiCache.m_StatusText = BCLocalize("The effect is live. Confirm it within 5 seconds to keep it enabled.");
-					gs_BestClientReShadeUiCache.m_StatusIsError = false;
-				}
-			}
+			CUIRect AddButtonRect;
+			ItemInner.VSplitRight(IconButtonSize, &ItemInner, &AddButtonRect);
 
-			bool CanReset = !vUniforms.empty();
-			if(pUi->DoButton_FontIcon(&TechniqueUi.m_ResetButton, FontIcon::ARROW_ROTATE_LEFT, CanReset ? 0 : -1, &ResetRect, BUTTONFLAG_LEFT) && CanReset)
-			{
-				BestClientResetReShadeTechniqueToDefaults(EnsureEditedPreset(), Technique.m_EffectName, vUniforms);
-				gs_BestClientReShadeUiCache.m_StatusText = BCLocalize("The effect settings were reset to their defaults.");
-				gs_BestClientReShadeUiCache.m_StatusIsError = false;
-			}
-			if(pUi->DoButton_FontIcon(&TechniqueUi.m_ExpandButton, TechniqueUi.m_Expanded ? FontIcon::CHEVRON_UP : FontIcon::CHEVRON_DOWN, 0, &ExpandRect, BUTTONFLAG_LEFT))
-				TechniqueUi.m_Expanded = !TechniqueUi.m_Expanded;
-		}
+			CUIRect NameRow, EffectRow;
+			ItemInner.HSplitTop(LineSize, &NameRow, &ItemInner);
+			ItemInner.HSplitTop(12.0f, &EffectRow, &ItemInner);
+			pUi->DoLabel(&NameRow, Technique.m_TechniqueName.c_str(), 14.0f, TEXTALIGN_ML);
 
-		if(!TechniqueUi.m_Expanded)
-			continue;
-
-		CUIRect EffectLabelRect;
-		TechniqueContent.HSplitTop(LineSize, &EffectLabelRect, &TechniqueContent);
-		TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
-		if(s_ScrollRegion.AddRect(EffectLabelRect))
-		{
-			CUIRect IndentedRect;
-			EffectLabelRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
 			char aEffectLabel[256];
 			str_format(aEffectLabel, sizeof(aEffectLabel), "Effect file: %s", Technique.m_EffectName.c_str());
-			pUi->DoLabel(&IndentedRect, aEffectLabel, 12.0f, TEXTALIGN_ML);
-		}
+			pTextRender->TextColor(1.0f, 1.0f, 1.0f, 0.7f);
+			pUi->DoLabel(&EffectRow, aEffectLabel, 10.0f, TEXTALIGN_ML);
+			pTextRender->TextColor(pTextRender->DefaultTextColor());
 
-		if(vUniforms.empty())
+			if(pUi->DoButton_FontIcon(&TechniqueUi.m_AddButton, FontIcon::PLUS, 0, &AddButtonRect, BUTTONFLAG_LEFT))
+			{
+				BestClientAddReShadeTechniqueToPreset(EnsureEditedPreset(), Technique.m_Token, vTechniqueCatalog);
+				s_TechniqueUiStates[Technique.m_Token].m_Expanded = false;
+				SetStatus(BCLocalize("The effect was added to the configured list."), false);
+			}
+		}
+		if(vAvailableTechniques.empty())
 		{
 			CUIRect EmptyRect;
-			TechniqueContent.HSplitTop(LineSize, &EmptyRect, &TechniqueContent);
-			TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
-			if(s_ScrollRegion.AddRect(EmptyRect))
-			{
-				CUIRect IndentedRect;
-				EmptyRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
-				pUi->DoLabel(&IndentedRect, BCLocalize("No supported scalar settings were found for this effect."), 12.0f, TEXTALIGN_ML);
-			}
-			continue;
+			Content.HSplitTop(40.0f, &EmptyRect, &Content);
+			if(s_AvailableScrollRegion.AddRect(EmptyRect))
+				pUi->DoLabel(&EmptyRect, BCLocalize("No available shaders match the current search."), 13.0f, TEXTALIGN_ML);
 		}
+		s_AvailableScrollRegion.End();
+	}
 
-		for(const SBestClientReShadeUniformMeta &UniformMeta : vUniforms)
+	{
+		DrawPanel(RightColumn);
+		CUIRect RightInner = RightColumn;
+		RightInner.VMargin(16.0f, &RightInner);
+		RightInner.HMargin(16.0f, &RightInner);
+
+		CUIRect HeaderRow, ListArea;
+		RightInner.HSplitTop(HeaderLineSize, &HeaderRow, &RightInner);
+		RightInner.HSplitTop(MarginMedium, nullptr, &RightInner);
+		ListArea = RightInner;
+
+		char aAddedTitle[128];
+		str_format(aAddedTitle, sizeof(aAddedTitle), "%s (%d)", BCLocalize("Added effects"), NumVisibleAdded);
+		pUi->DoLabel(&HeaderRow, aAddedTitle, 18.0f, TEXTALIGN_ML);
+
+		vec2 AddedScrollOffset(0.0f, 0.0f);
+		CScrollRegionParams AddedScrollParams;
+		AddedScrollParams.m_Flags = CScrollRegionParams::FLAG_CONTENT_STATIC_WIDTH;
+		s_AddedScrollRegion.Begin(&ListArea, &AddedScrollOffset, &AddedScrollParams);
+
+		CUIRect Content = ListArea;
+		Content.y += AddedScrollOffset.y;
+		for(const SBestClientReShadeTechniqueMeta &Technique : vAddedTechniques)
 		{
-			SUniformUiState &UniformUi = TechniqueUi.m_UniformStates[UniformMeta.m_Name];
-			const std::string UniformValueText = BestClientGetReShadeUniformValue(CurrentPresetState(), Technique.m_EffectName, UniformMeta);
+			STechniqueUiState &TechniqueUi = s_TechniqueUiStates[Technique.m_Token];
+			const bool Enabled = CurrentPresetState().m_EnabledTokens.find(Technique.m_Token) != CurrentPresetState().m_EnabledTokens.end();
+			if(g_Config.m_BcReshadeShowOnlyEnabled != 0 && !Enabled)
+				continue;
 
-			if(UniformMeta.m_Type == EBestClientReShadeUniformType::BOOL)
+			const std::vector<SBestClientReShadeUniformMeta> *pUniforms = nullptr;
+			if(TechniqueUi.m_Expanded)
+				pUniforms = &BestClientGetReShadeUniformMetadata(pStorage, Technique.m_EffectName);
+
+			const float BlockPaddingX = 16.0f;
+			const float BlockPaddingY = 14.0f;
+			float BlockInnerHeight = HeaderLineSize + MarginSmall;
+			if(TechniqueUi.m_Expanded)
 			{
-				CUIRect UniformRect;
-				TechniqueContent.HSplitTop(LineSize, &UniformRect, &TechniqueContent);
-				TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
-				if(!s_ScrollRegion.AddRect(UniformRect))
-					continue;
-
-				CUIRect IndentedRect;
-				UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
-				bool BoolValue = false;
-				if(!BestClientTryParseBoolText(UniformValueText, BoolValue))
-					BestClientTryParseBoolText(UniformMeta.m_DefaultValue, BoolValue);
-
-				int CheckboxValue = BoolValue ? 1 : 0;
-				if(pMenus->DoButton_CheckBox(&UniformUi.m_aIds[0], UniformMeta.m_Label.c_str(), CheckboxValue, &IndentedRect))
+				BlockInnerHeight += LineSize + MarginSmall;
+				if(pUniforms == nullptr || pUniforms->empty())
+					BlockInnerHeight += LineSize + MarginSmall;
+				else
 				{
-					EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = BoolValue ? "0" : "1";
+					for(const SBestClientReShadeUniformMeta &UniformMeta : *pUniforms)
+						BlockInnerHeight += GetUniformRowCount(UniformMeta) * (LineSize + MarginSmall);
 				}
 			}
-			else if(UniformMeta.m_Type == EBestClientReShadeUniformType::INT)
+
+			CUIRect BlockRect;
+			Content.HSplitTop(BlockInnerHeight + BlockPaddingY * 2.0f, &BlockRect, &Content);
+			Content.HSplitTop(MarginSmall, nullptr, &Content);
+			if(!s_AddedScrollRegion.AddRect(BlockRect))
+				continue;
+
+			BlockRect.Draw(ColorRGBA(1.0f, 1.0f, 1.0f, 0.08f), IGraphics::CORNER_ALL, CardRadius);
+
+			CUIRect TechniqueContent = BlockRect;
+			TechniqueContent.VMargin(BlockPaddingX, &TechniqueContent);
+			TechniqueContent.HMargin(BlockPaddingY, &TechniqueContent);
+
+			CUIRect TechniqueHeader;
+			TechniqueContent.HSplitTop(HeaderLineSize, &TechniqueHeader, &TechniqueContent);
+			TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
+			if(s_AddedScrollRegion.AddRect(TechniqueHeader))
 			{
-				if(!UniformMeta.m_vComboItems.empty())
+				CUIRect ToggleRect = TechniqueHeader, ResetRect, RemoveRect, ExpandRect;
+				ToggleRect.VSplitRight(IconButtonSize, &ToggleRect, &ExpandRect);
+				ToggleRect.VSplitRight(MarginSmall, &ToggleRect, nullptr);
+				ToggleRect.VSplitRight(IconButtonSize, &ToggleRect, &RemoveRect);
+				ToggleRect.VSplitRight(MarginSmall, &ToggleRect, nullptr);
+				ToggleRect.VSplitRight(IconButtonSize, &ToggleRect, &ResetRect);
+
+				int EnabledValue = Enabled ? 1 : 0;
+				if(pMenus->DoButton_CheckBox(&TechniqueUi.m_aIds[0], Technique.m_TechniqueName.c_str(), EnabledValue, &ToggleRect))
+				{
+					const bool NewEnabled = !Enabled;
+					BestClientSetReShadeTechniqueEnabled(EnsureEditedPreset(), Technique.m_Token, NewEnabled);
+					if(!NewEnabled && s_PendingAcceptToken == Technique.m_Token)
+					{
+						ClearPendingAccept();
+					}
+					else if(NewEnabled && g_Config.m_BcReshadeAutoAccept == 0)
+					{
+						if(!s_PendingAcceptToken.empty() && s_PendingAcceptToken != Technique.m_Token)
+							BestClientSetReShadeTechniqueEnabled(EnsureEditedPreset(), s_PendingAcceptToken, false);
+						s_PendingAcceptToken = Technique.m_Token;
+						s_PendingAcceptTechniqueName = Technique.m_TechniqueName;
+						s_PendingAcceptStartTick = NowTick;
+						ShowAcceptPopup(Technique.m_TechniqueName, 5);
+						SetStatus(BCLocalize("The effect is live. Confirm it within 5 seconds to keep it enabled."), false);
+					}
+				}
+
+				const std::vector<SBestClientReShadeUniformMeta> *pResetUniforms = pUniforms;
+				if(pResetUniforms == nullptr)
+					pResetUniforms = &BestClientGetReShadeUniformMetadata(pStorage, Technique.m_EffectName);
+				const bool CanReset = !pResetUniforms->empty();
+				if(pUi->DoButton_FontIcon(&TechniqueUi.m_ResetButton, FontIcon::ARROW_ROTATE_LEFT, CanReset ? 0 : -1, &ResetRect, BUTTONFLAG_LEFT) && CanReset)
+				{
+					BestClientResetReShadeTechniqueToDefaults(EnsureEditedPreset(), Technique.m_EffectName, *pResetUniforms);
+					SetStatus(BCLocalize("The effect settings were reset to their defaults."), false);
+				}
+
+				if(pUi->DoButton_FontIcon(&TechniqueUi.m_RemoveButton, FontIcon::TRASH, 0, &RemoveRect, BUTTONFLAG_LEFT))
+				{
+					BestClientRemoveReShadeTechniqueFromPreset(EnsureEditedPreset(), Technique.m_Token);
+					if(s_PendingAcceptToken == Technique.m_Token)
+						ClearPendingAccept();
+					SetStatus(BCLocalize("The effect was removed from the configured list."), false);
+				}
+
+				if(pUi->DoButton_FontIcon(&TechniqueUi.m_ExpandButton, TechniqueUi.m_Expanded ? FontIcon::CHEVRON_UP : FontIcon::CHEVRON_DOWN, 0, &ExpandRect, BUTTONFLAG_LEFT))
+					TechniqueUi.m_Expanded = !TechniqueUi.m_Expanded;
+			}
+
+			if(!TechniqueUi.m_Expanded)
+				continue;
+
+			if(pUniforms == nullptr)
+				pUniforms = &BestClientGetReShadeUniformMetadata(pStorage, Technique.m_EffectName);
+
+			CUIRect EffectLabelRect;
+			TechniqueContent.HSplitTop(LineSize, &EffectLabelRect, &TechniqueContent);
+			TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
+			if(s_AddedScrollRegion.AddRect(EffectLabelRect))
+			{
+				CUIRect IndentedRect;
+				EffectLabelRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
+				char aEffectLabel[256];
+				str_format(aEffectLabel, sizeof(aEffectLabel), "Effect file: %s", Technique.m_EffectName.c_str());
+				pUi->DoLabel(&IndentedRect, aEffectLabel, 12.0f, TEXTALIGN_ML);
+			}
+
+			if(pUniforms->empty())
+			{
+				CUIRect EmptyRect;
+				TechniqueContent.HSplitTop(LineSize, &EmptyRect, &TechniqueContent);
+				TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
+				if(s_AddedScrollRegion.AddRect(EmptyRect))
+				{
+					CUIRect IndentedRect;
+					EmptyRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
+					pUi->DoLabel(&IndentedRect, BCLocalize("No supported scalar settings were found for this effect."), 12.0f, TEXTALIGN_ML);
+				}
+				continue;
+			}
+
+			for(const SBestClientReShadeUniformMeta &UniformMeta : *pUniforms)
+			{
+				SUniformUiState &UniformUi = TechniqueUi.m_UniformStates[UniformMeta.m_Name];
+				const std::string UniformValueText = BestClientGetReShadeUniformValue(CurrentPresetState(), Technique.m_EffectName, UniformMeta);
+
+				if(UniformMeta.m_Type == EBestClientReShadeUniformType::BOOL)
 				{
 					CUIRect UniformRect;
 					TechniqueContent.HSplitTop(LineSize, &UniformRect, &TechniqueContent);
 					TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
-					if(!s_ScrollRegion.AddRect(UniformRect))
+					if(!s_AddedScrollRegion.AddRect(UniformRect))
 						continue;
 
 					CUIRect IndentedRect;
 					UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
-					int IntValue = 0;
-					BestClientTryParseIntText(UniformValueText, IntValue);
-					IntValue = std::clamp(IntValue, 0, (int)UniformMeta.m_vComboItems.size() - 1);
+					bool BoolValue = false;
+					if(!BestClientTryParseBoolText(UniformValueText, BoolValue))
+						BestClientTryParseBoolText(UniformMeta.m_DefaultValue, BoolValue);
 
-					CUIRect LabelRect, ControlRect;
-					IndentedRect.VSplitLeft(200.0f, &LabelRect, &ControlRect);
-					pUi->DoLabel(&LabelRect, UniformMeta.m_Label.c_str(), 14.0f, TEXTALIGN_ML);
-
-					std::vector<const char *> vItemPointers;
-					vItemPointers.reserve(UniformMeta.m_vComboItems.size());
-					for(const std::string &Item : UniformMeta.m_vComboItems)
-						vItemPointers.push_back(Item.c_str());
-
-					UniformUi.m_DropDownState.m_SelectionPopupContext.m_pScrollRegion = &UniformUi.m_DropDownScrollRegion;
-					const int NewValue = pUi->DoDropDown(&ControlRect, IntValue, vItemPointers.data(), (int)vItemPointers.size(), UniformUi.m_DropDownState);
-					if(NewValue != IntValue)
-						EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = std::to_string(NewValue);
-					continue;
+					int CheckboxValue = BoolValue ? 1 : 0;
+					if(pMenus->DoButton_CheckBox(&UniformUi.m_aIds[0], UniformMeta.m_Label.c_str(), CheckboxValue, &IndentedRect))
+						EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = BoolValue ? "0" : "1";
 				}
-
-				CUIRect UniformRect;
-				TechniqueContent.HSplitTop(LineSize, &UniformRect, &TechniqueContent);
-				TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
-				if(!s_ScrollRegion.AddRect(UniformRect))
-					continue;
-
-				CUIRect IndentedRect;
-				UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
-				int IntValue = (int)std::round(UniformMeta.m_Min);
-				if(!BestClientTryParseIntText(UniformValueText, IntValue))
+				else if(UniformMeta.m_Type == EBestClientReShadeUniformType::INT)
 				{
-					float DefaultFloat = UniformMeta.m_Min;
-					if(BestClientTryParseFloatText(UniformMeta.m_DefaultValue, DefaultFloat))
-						IntValue = (int)std::round(DefaultFloat);
+					if(!UniformMeta.m_vComboItems.empty())
+					{
+						CUIRect UniformRect;
+						TechniqueContent.HSplitTop(LineSize, &UniformRect, &TechniqueContent);
+						TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
+						if(!s_AddedScrollRegion.AddRect(UniformRect))
+							continue;
+
+						CUIRect IndentedRect;
+						UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
+						int IntValue = 0;
+						BestClientTryParseIntText(UniformValueText, IntValue);
+						IntValue = std::clamp(IntValue, 0, (int)UniformMeta.m_vComboItems.size() - 1);
+
+						CUIRect LabelRect, ControlRect;
+						IndentedRect.VSplitLeft(200.0f, &LabelRect, &ControlRect);
+						pUi->DoLabel(&LabelRect, UniformMeta.m_Label.c_str(), 14.0f, TEXTALIGN_ML);
+
+						std::vector<const char *> vItemPointers;
+						vItemPointers.reserve(UniformMeta.m_vComboItems.size());
+						for(const std::string &Item : UniformMeta.m_vComboItems)
+							vItemPointers.push_back(Item.c_str());
+
+						UniformUi.m_DropDownState.m_SelectionPopupContext.m_pScrollRegion = &UniformUi.m_DropDownScrollRegion;
+						const int NewValue = pUi->DoDropDown(&ControlRect, IntValue, vItemPointers.data(), (int)vItemPointers.size(), UniformUi.m_DropDownState);
+						if(NewValue != IntValue)
+							EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = std::to_string(NewValue);
+						continue;
+					}
+
+					CUIRect UniformRect;
+					TechniqueContent.HSplitTop(LineSize, &UniformRect, &TechniqueContent);
+					TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
+					if(!s_AddedScrollRegion.AddRect(UniformRect))
+						continue;
+
+					CUIRect IndentedRect;
+					UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
+					int IntValue = (int)std::round(UniformMeta.m_Min);
+					if(!BestClientTryParseIntText(UniformValueText, IntValue))
+					{
+						float DefaultFloat = UniformMeta.m_Min;
+						if(BestClientTryParseFloatText(UniformMeta.m_DefaultValue, DefaultFloat))
+							IntValue = (int)std::round(DefaultFloat);
+					}
+					IntValue = std::clamp(IntValue, (int)std::round(UniformMeta.m_Min), (int)std::round(UniformMeta.m_Max));
+					if(pUi->DoScrollbarOption(&UniformUi.m_aIds[0], &IntValue, &IndentedRect, UniformMeta.m_Label.c_str(), (int)std::round(UniformMeta.m_Min), (int)std::round(UniformMeta.m_Max)))
+						EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = std::to_string(IntValue);
 				}
-				IntValue = std::clamp(IntValue, (int)std::round(UniformMeta.m_Min), (int)std::round(UniformMeta.m_Max));
-				if(pUi->DoScrollbarOption(&UniformUi.m_aIds[0], &IntValue, &IndentedRect, UniformMeta.m_Label.c_str(), (int)std::round(UniformMeta.m_Min), (int)std::round(UniformMeta.m_Max)))
+				else if(UniformMeta.m_Type == EBestClientReShadeUniformType::UINT)
 				{
-					EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = std::to_string(IntValue);
+					if(!UniformMeta.m_vComboItems.empty())
+					{
+						CUIRect UniformRect;
+						TechniqueContent.HSplitTop(LineSize, &UniformRect, &TechniqueContent);
+						TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
+						if(!s_AddedScrollRegion.AddRect(UniformRect))
+							continue;
+
+						CUIRect IndentedRect;
+						UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
+						unsigned int UintValue = 0;
+						BestClientTryParseUintText(UniformValueText, UintValue);
+						const int CurrentValue = std::clamp((int)UintValue, 0, (int)UniformMeta.m_vComboItems.size() - 1);
+
+						CUIRect LabelRect, ControlRect;
+						IndentedRect.VSplitLeft(200.0f, &LabelRect, &ControlRect);
+						pUi->DoLabel(&LabelRect, UniformMeta.m_Label.c_str(), 14.0f, TEXTALIGN_ML);
+
+						std::vector<const char *> vItemPointers;
+						vItemPointers.reserve(UniformMeta.m_vComboItems.size());
+						for(const std::string &Item : UniformMeta.m_vComboItems)
+							vItemPointers.push_back(Item.c_str());
+
+						UniformUi.m_DropDownState.m_SelectionPopupContext.m_pScrollRegion = &UniformUi.m_DropDownScrollRegion;
+						const int NewValue = pUi->DoDropDown(&ControlRect, CurrentValue, vItemPointers.data(), (int)vItemPointers.size(), UniformUi.m_DropDownState);
+						if(NewValue != CurrentValue)
+							EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = std::to_string(NewValue);
+						continue;
+					}
+
+					CUIRect UniformRect;
+					TechniqueContent.HSplitTop(LineSize, &UniformRect, &TechniqueContent);
+					TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
+					if(!s_AddedScrollRegion.AddRect(UniformRect))
+						continue;
+
+					CUIRect IndentedRect;
+					UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
+					unsigned int UintValue = (unsigned int)std::round(maximum(UniformMeta.m_Min, 0.0f));
+					if(!BestClientTryParseUintText(UniformValueText, UintValue))
+					{
+						float DefaultFloat = maximum(UniformMeta.m_Min, 0.0f);
+						if(BestClientTryParseFloatText(UniformMeta.m_DefaultValue, DefaultFloat))
+							UintValue = (unsigned int)std::round(maximum(DefaultFloat, 0.0f));
+					}
+
+					const int MinValue = (int)std::round(maximum(UniformMeta.m_Min, 0.0f));
+					const int MaxValue = (int)std::round(maximum(UniformMeta.m_Max, UniformMeta.m_Min));
+					int SliderValue = std::clamp((int)UintValue, MinValue, MaxValue);
+					if(pUi->DoScrollbarOption(&UniformUi.m_aIds[0], &SliderValue, &IndentedRect, UniformMeta.m_Label.c_str(), MinValue, MaxValue))
+						EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = std::to_string((unsigned int)SliderValue);
 				}
-			}
-			else if(UniformMeta.m_Type == EBestClientReShadeUniformType::UINT)
-			{
-				if(!UniformMeta.m_vComboItems.empty())
+				else if(UniformMeta.m_IsColor && BestClientIsReShadeUniformFloatVectorType(UniformMeta.m_Type))
 				{
 					CUIRect UniformRect;
 					TechniqueContent.HSplitTop(LineSize, &UniformRect, &TechniqueContent);
 					TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
-					if(!s_ScrollRegion.AddRect(UniformRect))
+					if(!s_AddedScrollRegion.AddRect(UniformRect))
 						continue;
 
 					CUIRect IndentedRect;
 					UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
-					unsigned int UintValue = 0;
-					BestClientTryParseUintText(UniformValueText, UintValue);
-					const int CurrentValue = std::clamp((int)UintValue, 0, (int)UniformMeta.m_vComboItems.size() - 1);
 
-					CUIRect LabelRect, ControlRect;
-					IndentedRect.VSplitLeft(200.0f, &LabelRect, &ControlRect);
-					pUi->DoLabel(&LabelRect, UniformMeta.m_Label.c_str(), 14.0f, TEXTALIGN_ML);
+					std::array<float, 4> aDefaultValues = {0.0f, 0.0f, 0.0f, 1.0f};
+					BestClientTryParseFloatVectorText(UniformMeta.m_DefaultValue, aDefaultValues, UniformMeta.m_NumComponents);
 
-					std::vector<const char *> vItemPointers;
-					vItemPointers.reserve(UniformMeta.m_vComboItems.size());
-					for(const std::string &Item : UniformMeta.m_vComboItems)
-						vItemPointers.push_back(Item.c_str());
+					std::array<float, 4> aCurrentValues = aDefaultValues;
+					BestClientTryParseFloatVectorText(UniformValueText, aCurrentValues, UniformMeta.m_NumComponents);
+					if(!UniformMeta.m_HasAlpha)
+						aCurrentValues[3] = 1.0f;
 
-					UniformUi.m_DropDownState.m_SelectionPopupContext.m_pScrollRegion = &UniformUi.m_DropDownScrollRegion;
-					const int NewValue = pUi->DoDropDown(&ControlRect, CurrentValue, vItemPointers.data(), (int)vItemPointers.size(), UniformUi.m_DropDownState);
-					if(NewValue != CurrentValue)
-						EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = std::to_string(NewValue);
-					continue;
+					const ColorRGBA DefaultColor(
+						std::clamp(aDefaultValues[0], 0.0f, 1.0f),
+						std::clamp(aDefaultValues[1], 0.0f, 1.0f),
+						std::clamp(aDefaultValues[2], 0.0f, 1.0f),
+						UniformMeta.m_HasAlpha ? std::clamp(aDefaultValues[3], 0.0f, 1.0f) : 1.0f);
+					const ColorRGBA CurrentColor(
+						std::clamp(aCurrentValues[0], 0.0f, 1.0f),
+						std::clamp(aCurrentValues[1], 0.0f, 1.0f),
+						std::clamp(aCurrentValues[2], 0.0f, 1.0f),
+						UniformMeta.m_HasAlpha ? std::clamp(aCurrentValues[3], 0.0f, 1.0f) : 1.0f);
+
+					unsigned int PackedColor = color_cast<ColorHSLA>(CurrentColor).Pack(UniformMeta.m_HasAlpha);
+					const unsigned int PackedColorBefore = PackedColor;
+					CUIRect ColorRect = IndentedRect;
+					BestClientDoColorLine(pUi, pMenus, UniformUi.m_ColorPickerPopupContext, UniformUi.m_ColorResetButton, &ColorRect, UniformMeta.m_Label.c_str(), &PackedColor, DefaultColor, UniformMeta.m_HasAlpha);
+					if(PackedColor != PackedColorBefore)
+					{
+						const ColorRGBA UpdatedColor = color_cast<ColorRGBA>(ColorHSLA(PackedColor, UniformMeta.m_HasAlpha));
+						aCurrentValues[0] = UpdatedColor.r;
+						aCurrentValues[1] = UpdatedColor.g;
+						aCurrentValues[2] = UpdatedColor.b;
+						if(UniformMeta.m_HasAlpha)
+							aCurrentValues[3] = UpdatedColor.a;
+						EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = BestClientFormatReShadeFloatVector(aCurrentValues, UniformMeta.m_NumComponents);
+					}
 				}
-
-				CUIRect UniformRect;
-				TechniqueContent.HSplitTop(LineSize, &UniformRect, &TechniqueContent);
-				TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
-				if(!s_ScrollRegion.AddRect(UniformRect))
-					continue;
-
-				CUIRect IndentedRect;
-				UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
-				unsigned int UintValue = (unsigned int)std::round(maximum(UniformMeta.m_Min, 0.0f));
-				if(!BestClientTryParseUintText(UniformValueText, UintValue))
+				else if(BestClientIsReShadeUniformFloatVectorType(UniformMeta.m_Type))
 				{
-					float DefaultFloat = maximum(UniformMeta.m_Min, 0.0f);
-					if(BestClientTryParseFloatText(UniformMeta.m_DefaultValue, DefaultFloat))
-						UintValue = (unsigned int)std::round(maximum(DefaultFloat, 0.0f));
+					std::array<float, 4> aDefaultValues = {0.0f, 0.0f, 0.0f, 0.0f};
+					BestClientTryParseFloatVectorText(UniformMeta.m_DefaultValue, aDefaultValues, UniformMeta.m_NumComponents);
+
+					std::array<float, 4> aCurrentValues = aDefaultValues;
+					BestClientTryParseFloatVectorText(UniformValueText, aCurrentValues, UniformMeta.m_NumComponents);
+
+					for(int Component = 0; Component < UniformMeta.m_NumComponents; ++Component)
+					{
+						CUIRect UniformRect;
+						TechniqueContent.HSplitTop(LineSize, &UniformRect, &TechniqueContent);
+						TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
+						if(!s_AddedScrollRegion.AddRect(UniformRect))
+							continue;
+
+						CUIRect IndentedRect;
+						UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
+						const float FloatValue = std::clamp(aCurrentValues[Component], UniformMeta.m_Min, UniformMeta.m_Max);
+
+						int SliderValue = 0;
+						if(UniformMeta.m_Max > UniformMeta.m_Min)
+							SliderValue = (int)std::round((FloatValue - UniformMeta.m_Min) / (UniformMeta.m_Max - UniformMeta.m_Min) * 1000.0f);
+						SliderValue = std::clamp(SliderValue, 0, 1000);
+
+						char aComponentLabel[128];
+						str_format(aComponentLabel, sizeof(aComponentLabel), "%s %s", UniformMeta.m_Label.c_str(), BestClientReShadeUniformComponentSuffix(Component));
+						if(pMenus->DoSliderWithScaledValue(&UniformUi.m_aIds[Component], &SliderValue, &IndentedRect, aComponentLabel, 0, 1000, 1, &CUi::ms_LinearScrollbarScale))
+						{
+							const float NormalizedValue = SliderValue / 1000.0f;
+							aCurrentValues[Component] = mix(UniformMeta.m_Min, UniformMeta.m_Max, NormalizedValue);
+							EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = BestClientFormatReShadeFloatVector(aCurrentValues, UniformMeta.m_NumComponents);
+						}
+					}
 				}
-
-				const int MinValue = (int)std::round(maximum(UniformMeta.m_Min, 0.0f));
-				const int MaxValue = (int)std::round(maximum(UniformMeta.m_Max, UniformMeta.m_Min));
-				int SliderValue = std::clamp((int)UintValue, MinValue, MaxValue);
-				if(pUi->DoScrollbarOption(&UniformUi.m_aIds[0], &SliderValue, &IndentedRect, UniformMeta.m_Label.c_str(), MinValue, MaxValue))
-					EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = std::to_string((unsigned int)SliderValue);
-			}
-			else if(UniformMeta.m_IsColor && BestClientIsReShadeUniformFloatVectorType(UniformMeta.m_Type))
-			{
-				CUIRect UniformRect;
-				TechniqueContent.HSplitTop(LineSize, &UniformRect, &TechniqueContent);
-				TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
-				if(!s_ScrollRegion.AddRect(UniformRect))
-					continue;
-
-				CUIRect IndentedRect;
-				UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
-
-				std::array<float, 4> aDefaultValues = {0.0f, 0.0f, 0.0f, 1.0f};
-				BestClientTryParseFloatVectorText(UniformMeta.m_DefaultValue, aDefaultValues, UniformMeta.m_NumComponents);
-
-				std::array<float, 4> aCurrentValues = aDefaultValues;
-				BestClientTryParseFloatVectorText(UniformValueText, aCurrentValues, UniformMeta.m_NumComponents);
-				if(!UniformMeta.m_HasAlpha)
-					aCurrentValues[3] = 1.0f;
-
-				const ColorRGBA DefaultColor(
-					std::clamp(aDefaultValues[0], 0.0f, 1.0f),
-					std::clamp(aDefaultValues[1], 0.0f, 1.0f),
-					std::clamp(aDefaultValues[2], 0.0f, 1.0f),
-					UniformMeta.m_HasAlpha ? std::clamp(aDefaultValues[3], 0.0f, 1.0f) : 1.0f);
-				const ColorRGBA CurrentColor(
-					std::clamp(aCurrentValues[0], 0.0f, 1.0f),
-					std::clamp(aCurrentValues[1], 0.0f, 1.0f),
-					std::clamp(aCurrentValues[2], 0.0f, 1.0f),
-					UniformMeta.m_HasAlpha ? std::clamp(aCurrentValues[3], 0.0f, 1.0f) : 1.0f);
-
-				unsigned int PackedColor = color_cast<ColorHSLA>(CurrentColor).Pack(UniformMeta.m_HasAlpha);
-				const unsigned int PackedColorBefore = PackedColor;
-				CUIRect ColorRect = IndentedRect;
-				BestClientDoColorLine(pUi, pMenus, UniformUi.m_ColorPickerPopupContext, UniformUi.m_ColorResetButton, &ColorRect, UniformMeta.m_Label.c_str(), &PackedColor, DefaultColor, UniformMeta.m_HasAlpha);
-				if(PackedColor != PackedColorBefore)
-				{
-					const ColorRGBA UpdatedColor = color_cast<ColorRGBA>(ColorHSLA(PackedColor, UniformMeta.m_HasAlpha));
-					aCurrentValues[0] = UpdatedColor.r;
-					aCurrentValues[1] = UpdatedColor.g;
-					aCurrentValues[2] = UpdatedColor.b;
-					if(UniformMeta.m_HasAlpha)
-						aCurrentValues[3] = UpdatedColor.a;
-					EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = BestClientFormatReShadeFloatVector(aCurrentValues, UniformMeta.m_NumComponents);
-				}
-			}
-			else if(BestClientIsReShadeUniformFloatVectorType(UniformMeta.m_Type))
-			{
-				std::array<float, 4> aDefaultValues = {0.0f, 0.0f, 0.0f, 0.0f};
-				BestClientTryParseFloatVectorText(UniformMeta.m_DefaultValue, aDefaultValues, UniformMeta.m_NumComponents);
-
-				std::array<float, 4> aCurrentValues = aDefaultValues;
-				BestClientTryParseFloatVectorText(UniformValueText, aCurrentValues, UniformMeta.m_NumComponents);
-
-				for(int Component = 0; Component < UniformMeta.m_NumComponents; ++Component)
+				else
 				{
 					CUIRect UniformRect;
 					TechniqueContent.HSplitTop(LineSize, &UniformRect, &TechniqueContent);
 					TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
-					if(!s_ScrollRegion.AddRect(UniformRect))
+					if(!s_AddedScrollRegion.AddRect(UniformRect))
 						continue;
 
 					CUIRect IndentedRect;
 					UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
-					const float FloatValue = std::clamp(aCurrentValues[Component], UniformMeta.m_Min, UniformMeta.m_Max);
+					float FloatValue = UniformMeta.m_Min;
+					if(!BestClientTryParseFloatText(UniformValueText, FloatValue))
+						BestClientTryParseFloatText(UniformMeta.m_DefaultValue, FloatValue);
+					FloatValue = std::clamp(FloatValue, UniformMeta.m_Min, UniformMeta.m_Max);
 
 					int SliderValue = 0;
 					if(UniformMeta.m_Max > UniformMeta.m_Min)
 						SliderValue = (int)std::round((FloatValue - UniformMeta.m_Min) / (UniformMeta.m_Max - UniformMeta.m_Min) * 1000.0f);
 					SliderValue = std::clamp(SliderValue, 0, 1000);
 
-					char aComponentLabel[128];
-					str_format(aComponentLabel, sizeof(aComponentLabel), "%s %s", UniformMeta.m_Label.c_str(), BestClientReShadeUniformComponentSuffix(Component));
-					if(pMenus->DoSliderWithScaledValue(&UniformUi.m_aIds[Component], &SliderValue, &IndentedRect, aComponentLabel, 0, 1000, 1, &CUi::ms_LinearScrollbarScale))
+					if(pMenus->DoSliderWithScaledValue(&UniformUi.m_aIds[0], &SliderValue, &IndentedRect, UniformMeta.m_Label.c_str(), 0, 1000, 1, &CUi::ms_LinearScrollbarScale))
 					{
 						const float NormalizedValue = SliderValue / 1000.0f;
-						aCurrentValues[Component] = mix(UniformMeta.m_Min, UniformMeta.m_Max, NormalizedValue);
-						EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = BestClientFormatReShadeFloatVector(aCurrentValues, UniformMeta.m_NumComponents);
+						const float UpdatedValue = mix(UniformMeta.m_Min, UniformMeta.m_Max, NormalizedValue);
+						EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = BestClientFormatReShadeFloat(UpdatedValue);
 					}
 				}
 			}
-			else
-			{
-				CUIRect UniformRect;
-				TechniqueContent.HSplitTop(LineSize, &UniformRect, &TechniqueContent);
-				TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
-				if(!s_ScrollRegion.AddRect(UniformRect))
-					continue;
-
-				CUIRect IndentedRect;
-				UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
-				float FloatValue = UniformMeta.m_Min;
-				if(!BestClientTryParseFloatText(UniformValueText, FloatValue))
-					BestClientTryParseFloatText(UniformMeta.m_DefaultValue, FloatValue);
-				FloatValue = std::clamp(FloatValue, UniformMeta.m_Min, UniformMeta.m_Max);
-
-				int SliderValue = 0;
-				if(UniformMeta.m_Max > UniformMeta.m_Min)
-					SliderValue = (int)std::round((FloatValue - UniformMeta.m_Min) / (UniformMeta.m_Max - UniformMeta.m_Min) * 1000.0f);
-				SliderValue = std::clamp(SliderValue, 0, 1000);
-
-				if(pMenus->DoSliderWithScaledValue(&UniformUi.m_aIds[0], &SliderValue, &IndentedRect, UniformMeta.m_Label.c_str(), 0, 1000, 1, &CUi::ms_LinearScrollbarScale))
-				{
-					const float NormalizedValue = SliderValue / 1000.0f;
-					const float UpdatedValue = mix(UniformMeta.m_Min, UniformMeta.m_Max, NormalizedValue);
-					EnsureEditedPreset().m_SectionValues[Technique.m_EffectName][UniformMeta.m_Name] = BestClientFormatReShadeFloat(UpdatedValue);
-				}
-			}
 		}
-	}
 
-	s_ScrollRegion.End();
+		if(NumVisibleAdded == 0)
+		{
+			CUIRect EmptyRect;
+			Content.HSplitTop(40.0f, &EmptyRect, &Content);
+			if(s_AddedScrollRegion.AddRect(EmptyRect))
+				pUi->DoLabel(&EmptyRect, BCLocalize("No shaders are configured on the right yet."), 13.0f, TEXTALIGN_ML);
+		}
+
+		s_AddedScrollRegion.End();
+	}
 
 	if(HasPresetChanges)
 	{
+		s_PendingSavePresetState = EditedPresetState;
+		s_HasPendingSavePreset = true;
+		s_PendingSavePresetTick = NowTick;
+	}
+
+	const int64_t SaveDelay = maximum<int64_t>(1, time_freq() / 3);
+	if(s_HasPendingSavePreset && NowTick - s_PendingSavePresetTick >= SaveDelay)
+	{
 		char aSettingsError[192];
 		char aSaveError[192];
-		if(BestClientSaveReShadePreset(pStorage, EditedPresetState, aSaveError, sizeof(aSaveError)) &&
-			BestClientSaveReShadeSettings(pStorage, EditedPresetState, aSettingsError, sizeof(aSettingsError)))
+		if(BestClientSaveReShadePreset(pStorage, s_PendingSavePresetState, aSaveError, sizeof(aSaveError)) &&
+			BestClientSaveReShadeSettings(pStorage, s_PendingSavePresetState, aSettingsError, sizeof(aSettingsError)))
 		{
+			s_HasPendingSavePreset = false;
 			char aRuntimeError[192];
 			if(BestClientReShadeRuntimeCommitPreset(pStorage, aRuntimeError, sizeof(aRuntimeError)))
 			{
-				gs_BestClientReShadeUiCache.m_StatusText = BCLocalize("Saved to ReShadePreset.ini and settings_reshade.cfg, then applied live.");
-				gs_BestClientReShadeUiCache.m_StatusIsError = false;
+				SetStatus(BCLocalize("Saved to ReShadePreset.ini and settings_reshade.cfg, then applied live."), false);
 			}
 			else
 			{
 				char aStatus[256];
 				str_format(aStatus, sizeof(aStatus), "Saved to ReShadePreset.ini and settings_reshade.cfg, but live apply is unavailable: %s", aRuntimeError);
-				gs_BestClientReShadeUiCache.m_StatusText = aStatus;
-				gs_BestClientReShadeUiCache.m_StatusIsError = true;
+				SetStatus(aStatus, true);
 			}
 		}
 		else
 		{
-			gs_BestClientReShadeUiCache.m_StatusText = aSaveError[0] != '\0' ? aSaveError : aSettingsError;
-			gs_BestClientReShadeUiCache.m_StatusIsError = true;
+			s_HasPendingSavePreset = false;
+			SetStatus(aSaveError[0] != '\0' ? aSaveError : aSettingsError, true);
 		}
 	}
 }

@@ -2,10 +2,14 @@
 
 #include <reshade.hpp>
 
+#include <algorithm>
+#include <chrono>
+#include <cctype>
 #include <cstdio>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -42,6 +46,7 @@ struct SUniformValue
 struct SPresetState
 {
 	std::unordered_set<std::string> m_EnabledTokens;
+	std::unordered_set<std::string> m_EnabledEffectIdentifiers;
 	std::unordered_map<std::string, std::unordered_map<std::string, SUniformValue>> m_SectionValues;
 };
 
@@ -50,8 +55,14 @@ struct SRuntimeState
 	std::filesystem::path m_PresetPath;
 	std::filesystem::file_time_type m_LastWriteTime = {};
 	bool m_HasWriteTime = false;
+	size_t m_LastPresetHash = 0;
+	bool m_HasPresetHash = false;
+	size_t m_LastZeroUniformDiagnosticsHash = 0;
+	bool m_HasZeroUniformDiagnosticsHash = false;
+	std::chrono::steady_clock::time_point m_LastFingerprintCheck = {};
 	bool m_PresetReadWarningShown = false;
 	bool m_HasAppliedPreset = false;
+	bool m_EffectsReady = false;
 };
 
 std::unordered_map<reshade::api::effect_runtime *, SRuntimeState> gs_RuntimeStates;
@@ -71,6 +82,20 @@ bool QueryWriteTime(const std::filesystem::path &Path, std::filesystem::file_tim
 	std::error_code Error;
 	WriteTime = std::filesystem::last_write_time(Path, Error);
 	return !Error;
+}
+
+bool QueryPresetFingerprint(const std::filesystem::path &Path, std::filesystem::file_time_type &WriteTime, size_t &Hash)
+{
+	if(!QueryWriteTime(Path, WriteTime))
+		return false;
+
+	std::ifstream File(Path, std::ios::binary);
+	if(!File.is_open())
+		return false;
+
+	std::string Contents((std::istreambuf_iterator<char>(File)), std::istreambuf_iterator<char>());
+	Hash = std::hash<std::string>{}(Contents);
+	return true;
 }
 
 std::string Trim(std::string Text)
@@ -95,6 +120,159 @@ std::optional<std::string> ReadTextFile(const std::filesystem::path &Path)
 }
 
 std::vector<std::string> SplitCommaSeparated(const std::string &Text);
+std::string NormalizeEffectIdentifier(const std::string &EffectName);
+std::string EffectIdentifierStem(const std::string &EffectName);
+std::string NormalizeUniformIdentifier(const std::string &UniformName);
+
+void AddEnabledEffectIdentifiers(SPresetState &State, const std::string &Token)
+{
+	const size_t SeparatorPos = Token.find('@');
+	if(SeparatorPos == std::string::npos || SeparatorPos + 1 >= Token.size())
+		return;
+
+	const std::string EffectName = Token.substr(SeparatorPos + 1);
+	const std::string Normalized = NormalizeEffectIdentifier(EffectName);
+	if(!Normalized.empty())
+	{
+		State.m_EnabledEffectIdentifiers.insert(Normalized);
+		const std::string Stem = EffectIdentifierStem(Normalized);
+		if(!Stem.empty())
+			State.m_EnabledEffectIdentifiers.insert(Stem);
+	}
+}
+
+std::string NormalizeUniformIdentifier(const std::string &UniformName)
+{
+	std::string Normalized = UniformName;
+	const size_t ScopePos = Normalized.rfind("::");
+	if(ScopePos != std::string::npos)
+		Normalized = Normalized.substr(ScopePos + 2);
+
+	const size_t BracketPos = Normalized.find('[');
+	if(BracketPos != std::string::npos)
+		Normalized = Normalized.substr(0, BracketPos);
+
+	for(char &c : Normalized)
+		c = (char)std::tolower((unsigned char)c);
+	return Normalized;
+}
+
+const SUniformValue *FindUniformValueForRuntimeVariable(const std::unordered_map<std::string, SUniformValue> &SectionValues, const char *pUniformName)
+{
+	if(pUniformName == nullptr || pUniformName[0] == '\0')
+		return nullptr;
+
+	const auto ExactIt = SectionValues.find(pUniformName);
+	if(ExactIt != SectionValues.end())
+		return &ExactIt->second;
+
+	const std::string RuntimeNormalized = NormalizeUniformIdentifier(pUniformName);
+	for(const auto &[UniformName, UniformValue] : SectionValues)
+	{
+		if(NormalizeUniformIdentifier(UniformName) == RuntimeNormalized)
+			return &UniformValue;
+	}
+
+	return nullptr;
+}
+
+bool ApplyUniformValueToVariable(reshade::api::effect_runtime *pRuntime, reshade::api::effect_uniform_variable Variable, const SUniformValue &UniformValue)
+{
+	reshade::api::format BaseType = reshade::api::format::unknown;
+	uint32_t Rows = 0;
+	uint32_t Columns = 0;
+	uint32_t ArrayLength = 0;
+	pRuntime->get_uniform_variable_type(Variable, &BaseType, &Rows, &Columns, &ArrayLength);
+	if(ArrayLength != 1)
+		return false;
+
+	const uint32_t ComponentCount = Rows * Columns;
+	if(ComponentCount == 0)
+		return false;
+
+	switch(BaseType)
+	{
+	case reshade::api::format::r32_typeless:
+		if(UniformValue.m_Type == EUniformValueType::BOOL && ComponentCount == 1)
+		{
+			pRuntime->set_uniform_value_bool(Variable, &UniformValue.m_BoolValue, 1);
+			return true;
+		}
+		break;
+	case reshade::api::format::r32_sint:
+		if(UniformValue.m_Type == EUniformValueType::INT && ComponentCount == 1)
+		{
+			pRuntime->set_uniform_value_int(Variable, &UniformValue.m_IntValue, 1);
+			return true;
+		}
+		else if(UniformValue.m_Type == EUniformValueType::UINT && ComponentCount == 1)
+		{
+			const int32_t SignedValue = (int32_t)UniformValue.m_UintValue;
+			pRuntime->set_uniform_value_int(Variable, &SignedValue, 1);
+			return true;
+		}
+		else if(UniformValue.m_Type == EUniformValueType::BOOL && ComponentCount == 1)
+		{
+			const int32_t SignedValue = UniformValue.m_BoolValue ? 1 : 0;
+			pRuntime->set_uniform_value_int(Variable, &SignedValue, 1);
+			return true;
+		}
+		break;
+	case reshade::api::format::r32_uint:
+		if(UniformValue.m_Type == EUniformValueType::UINT && ComponentCount == 1)
+		{
+			pRuntime->set_uniform_value_uint(Variable, &UniformValue.m_UintValue, 1);
+			return true;
+		}
+		else if(UniformValue.m_Type == EUniformValueType::INT && UniformValue.m_IntValue >= 0 && ComponentCount == 1)
+		{
+			const uint32_t UnsignedValue = (uint32_t)UniformValue.m_IntValue;
+			pRuntime->set_uniform_value_uint(Variable, &UnsignedValue, 1);
+			return true;
+		}
+		else if(UniformValue.m_Type == EUniformValueType::BOOL && ComponentCount == 1)
+		{
+			const uint32_t UnsignedValue = UniformValue.m_BoolValue ? 1u : 0u;
+			pRuntime->set_uniform_value_uint(Variable, &UnsignedValue, 1);
+			return true;
+		}
+		break;
+	case reshade::api::format::r32_float:
+		if(UniformValue.m_Type == EUniformValueType::FLOAT_VECTOR && ComponentCount <= UniformValue.m_vFloatValues.size())
+		{
+			pRuntime->set_uniform_value_float(Variable, UniformValue.m_vFloatValues.data(), ComponentCount);
+			return true;
+		}
+		else if(UniformValue.m_Type == EUniformValueType::FLOAT && ComponentCount == 1)
+		{
+			pRuntime->set_uniform_value_float(Variable, &UniformValue.m_FloatValue, 1);
+			return true;
+		}
+		else if(UniformValue.m_Type == EUniformValueType::INT && ComponentCount == 1)
+		{
+			const float FloatValue = (float)UniformValue.m_IntValue;
+			pRuntime->set_uniform_value_float(Variable, &FloatValue, 1);
+			return true;
+		}
+		else if(UniformValue.m_Type == EUniformValueType::UINT && ComponentCount == 1)
+		{
+			const float FloatValue = (float)UniformValue.m_UintValue;
+			pRuntime->set_uniform_value_float(Variable, &FloatValue, 1);
+			return true;
+		}
+		else if(UniformValue.m_Type == EUniformValueType::BOOL && ComponentCount == 1)
+		{
+			const float FloatValue = UniformValue.m_BoolValue ? 1.0f : 0.0f;
+			pRuntime->set_uniform_value_float(Variable, &FloatValue, 1);
+			return true;
+		}
+		break;
+	default:
+		break;
+	}
+
+	return false;
+}
 
 bool TryParseFloat(const std::string &Text, float &Value)
 {
@@ -204,7 +382,10 @@ bool ParsePresetState(const std::filesystem::path &PresetPath, SPresetState &Sta
 			if(Key == "Techniques")
 			{
 				for(const std::string &Token : SplitCommaSeparated(Value))
+				{
 					State.m_EnabledTokens.insert(Token);
+					AddEnabledEffectIdentifiers(State, Token);
+				}
 			}
 			continue;
 		}
@@ -260,6 +441,50 @@ std::string BuildTechniqueToken(const char *pTechniqueName, const char *pEffectN
 	return std::string(pTechniqueName) + "@" + pEffectName;
 }
 
+std::string NormalizeEffectIdentifier(const std::string &EffectName)
+{
+	std::string Normalized = EffectName;
+	std::replace(Normalized.begin(), Normalized.end(), '\\', '/');
+	const size_t SlashPos = Normalized.find_last_of('/');
+	if(SlashPos != std::string::npos)
+		Normalized = Normalized.substr(SlashPos + 1);
+	for(char &c : Normalized)
+		c = (char)std::tolower((unsigned char)c);
+	return Normalized;
+}
+
+std::string EffectIdentifierStem(const std::string &EffectName)
+{
+	const std::filesystem::path Path = std::filesystem::u8path(EffectName);
+	std::string Stem = Path.stem().string();
+	for(char &c : Stem)
+		c = (char)std::tolower((unsigned char)c);
+	return Stem;
+}
+
+const std::unordered_map<std::string, SUniformValue> *FindPresetSectionForRuntimeEffect(const SPresetState &PresetState, const char *pEffectName)
+{
+	if(pEffectName == nullptr || pEffectName[0] == '\0')
+		return nullptr;
+
+	const std::string RuntimeNormalized = NormalizeEffectIdentifier(pEffectName);
+	const std::string RuntimeStem = EffectIdentifierStem(RuntimeNormalized);
+	for(const auto &[SectionName, SectionValues] : PresetState.m_SectionValues)
+	{
+		if(SectionValues.empty())
+			continue;
+
+		const std::string SectionNormalized = NormalizeEffectIdentifier(SectionName);
+		if(SectionNormalized == RuntimeNormalized)
+			return &SectionValues;
+
+		if(!RuntimeStem.empty() && EffectIdentifierStem(SectionNormalized) == RuntimeStem)
+			return &SectionValues;
+	}
+
+	return nullptr;
+}
+
 void ApplyTechniqueStates(reshade::api::effect_runtime *pRuntime, const SPresetState &PresetState, int &NumAppliedTechniques)
 {
 	NumAppliedTechniques = 0;
@@ -269,7 +494,8 @@ void ApplyTechniqueStates(reshade::api::effect_runtime *pRuntime, const SPresetS
 		pCurrentRuntime->get_technique_name(Technique, aTechniqueName);
 		pCurrentRuntime->get_technique_effect_name(Technique, aEffectName);
 		const std::string Token = BuildTechniqueToken(aTechniqueName, aEffectName);
-		const bool Enabled = PresetState.m_EnabledTokens.find(Token) != PresetState.m_EnabledTokens.end();
+		const bool Enabled = PresetState.m_EnabledTokens.find(Token) != PresetState.m_EnabledTokens.end() ||
+			PresetState.m_EnabledTokens.find(aTechniqueName) != PresetState.m_EnabledTokens.end();
 		pCurrentRuntime->set_technique_state(Technique, Enabled);
 		++NumAppliedTechniques;
 	});
@@ -277,99 +503,92 @@ void ApplyTechniqueStates(reshade::api::effect_runtime *pRuntime, const SPresetS
 
 int ApplyUniformStates(reshade::api::effect_runtime *pRuntime, const SPresetState &PresetState)
 {
+	std::unordered_map<std::string, std::vector<std::string>> RuntimeEffectsByIdentifier;
+	auto AddRuntimeEffectName = [&](const char *pEffectName) {
+		if(pEffectName == nullptr || pEffectName[0] == '\0')
+			return;
+
+		const std::string ActualName = pEffectName;
+		const std::string Normalized = NormalizeEffectIdentifier(ActualName);
+		const std::string Stem = EffectIdentifierStem(Normalized);
+		auto AddIdentifier = [&](const std::string &Identifier) {
+			if(Identifier.empty())
+				return;
+			auto &vEffectNames = RuntimeEffectsByIdentifier[Identifier];
+			if(std::find(vEffectNames.begin(), vEffectNames.end(), ActualName) == vEffectNames.end())
+				vEffectNames.push_back(ActualName);
+		};
+		AddIdentifier(Normalized);
+		AddIdentifier(Stem);
+	};
+
+	pRuntime->enumerate_techniques(nullptr, [&](reshade::api::effect_runtime *pCurrentRuntime, reshade::api::effect_technique Technique) {
+		char aEffectName[512] = {0};
+		pCurrentRuntime->get_technique_effect_name(Technique, aEffectName);
+		AddRuntimeEffectName(aEffectName);
+	});
+	pRuntime->enumerate_uniform_variables(nullptr, [&](reshade::api::effect_runtime *pCurrentRuntime, reshade::api::effect_uniform_variable Variable) {
+		char aEffectName[512] = {0};
+		pCurrentRuntime->get_uniform_variable_effect_name(Variable, aEffectName);
+		AddRuntimeEffectName(aEffectName);
+	});
+
 	int NumAppliedUniforms = 0;
 
-	for(const auto &[EffectName, SectionValues] : PresetState.m_SectionValues)
+	for(const auto &[SectionName, SectionValues] : PresetState.m_SectionValues)
 	{
 		if(SectionValues.empty())
 			continue;
 
-		pRuntime->enumerate_uniform_variables(EffectName.c_str(), [&](reshade::api::effect_runtime *pCurrentRuntime, reshade::api::effect_uniform_variable Variable) {
-			char aUniformName[512] = {0};
-			pCurrentRuntime->get_uniform_variable_name(Variable, aUniformName);
-			if(aUniformName[0] == '\0')
+		const std::string SectionNormalized = NormalizeEffectIdentifier(SectionName);
+		const std::string SectionStem = EffectIdentifierStem(SectionNormalized);
+		std::vector<std::string> CandidateEffectNames;
+		auto AppendCandidates = [&](const std::string &Identifier) {
+			const auto It = RuntimeEffectsByIdentifier.find(Identifier);
+			if(It == RuntimeEffectsByIdentifier.end())
 				return;
-
-			const auto ValueIt = SectionValues.find(aUniformName);
-			if(ValueIt == SectionValues.end())
-				return;
-
-			reshade::api::format BaseType = reshade::api::format::unknown;
-			uint32_t Rows = 0;
-			uint32_t Columns = 0;
-			uint32_t ArrayLength = 0;
-			pCurrentRuntime->get_uniform_variable_type(Variable, &BaseType, &Rows, &Columns, &ArrayLength);
-			if(ArrayLength != 1)
-				return;
-
-			const uint32_t ComponentCount = Rows * Columns;
-			if(ComponentCount == 0)
-				return;
-
-			const SUniformValue &UniformValue = ValueIt->second;
-			switch(BaseType)
+			for(const std::string &EffectName : It->second)
 			{
-			case reshade::api::format::r32_typeless:
-				if(UniformValue.m_Type == EUniformValueType::BOOL && ComponentCount == 1)
-				{
-					pCurrentRuntime->set_uniform_value_bool(Variable, &UniformValue.m_BoolValue, 1);
-					++NumAppliedUniforms;
-				}
-				break;
-			case reshade::api::format::r32_sint:
-				if(UniformValue.m_Type == EUniformValueType::INT && ComponentCount == 1)
-				{
-					pCurrentRuntime->set_uniform_value_int(Variable, &UniformValue.m_IntValue, 1);
-					++NumAppliedUniforms;
-				}
-				else if(UniformValue.m_Type == EUniformValueType::UINT && ComponentCount == 1)
-				{
-					const int32_t SignedValue = (int32_t)UniformValue.m_UintValue;
-					pCurrentRuntime->set_uniform_value_int(Variable, &SignedValue, 1);
-					++NumAppliedUniforms;
-				}
-				break;
-			case reshade::api::format::r32_uint:
-				if(UniformValue.m_Type == EUniformValueType::UINT && ComponentCount == 1)
-				{
-					pCurrentRuntime->set_uniform_value_uint(Variable, &UniformValue.m_UintValue, 1);
-					++NumAppliedUniforms;
-				}
-				else if(UniformValue.m_Type == EUniformValueType::INT && UniformValue.m_IntValue >= 0 && ComponentCount == 1)
-				{
-					const uint32_t UnsignedValue = (uint32_t)UniformValue.m_IntValue;
-					pCurrentRuntime->set_uniform_value_uint(Variable, &UnsignedValue, 1);
-					++NumAppliedUniforms;
-				}
-				break;
-			case reshade::api::format::r32_float:
-				if(UniformValue.m_Type == EUniformValueType::FLOAT_VECTOR && ComponentCount <= UniformValue.m_vFloatValues.size())
-				{
-					pCurrentRuntime->set_uniform_value_float(Variable, UniformValue.m_vFloatValues.data(), ComponentCount);
-					++NumAppliedUniforms;
-				}
-				else if(UniformValue.m_Type == EUniformValueType::FLOAT && ComponentCount == 1)
-				{
-					pCurrentRuntime->set_uniform_value_float(Variable, &UniformValue.m_FloatValue, 1);
-					++NumAppliedUniforms;
-				}
-				else if(UniformValue.m_Type == EUniformValueType::INT && ComponentCount == 1)
-				{
-					const float FloatValue = (float)UniformValue.m_IntValue;
-					pCurrentRuntime->set_uniform_value_float(Variable, &FloatValue, 1);
-					++NumAppliedUniforms;
-				}
-				else if(UniformValue.m_Type == EUniformValueType::UINT && ComponentCount == 1)
-				{
-					const float FloatValue = (float)UniformValue.m_UintValue;
-					pCurrentRuntime->set_uniform_value_float(Variable, &FloatValue, 1);
-					++NumAppliedUniforms;
-				}
-				break;
-			default:
-				break;
+				if(std::find(CandidateEffectNames.begin(), CandidateEffectNames.end(), EffectName) == CandidateEffectNames.end())
+					CandidateEffectNames.push_back(EffectName);
 			}
-		});
+		};
+		AppendCandidates(SectionNormalized);
+		AppendCandidates(SectionStem);
+		if(CandidateEffectNames.empty())
+			continue;
+
+		for(const auto &[UniformName, UniformValue] : SectionValues)
+		{
+			bool Applied = false;
+			for(const std::string &EffectName : CandidateEffectNames)
+			{
+				reshade::api::effect_uniform_variable Variable = pRuntime->find_uniform_variable(EffectName.c_str(), UniformName.c_str());
+				if(Variable.handle == 0)
+				{
+					pRuntime->enumerate_uniform_variables(EffectName.c_str(), [&](reshade::api::effect_runtime *pCurrentRuntime, reshade::api::effect_uniform_variable CandidateVariable) {
+						if(Applied || Variable.handle != 0)
+							return;
+
+						char aCandidateUniformName[512] = {0};
+						pCurrentRuntime->get_uniform_variable_name(CandidateVariable, aCandidateUniformName);
+						const SUniformValue *pMatchedValue = FindUniformValueForRuntimeVariable(SectionValues, aCandidateUniformName);
+						if(pMatchedValue == nullptr)
+							return;
+						if(NormalizeUniformIdentifier(aCandidateUniformName) != NormalizeUniformIdentifier(UniformName))
+							return;
+						Variable = CandidateVariable;
+					});
+				}
+
+				if(Variable.handle != 0 && ApplyUniformValueToVariable(pRuntime, Variable, UniformValue))
+				{
+					++NumAppliedUniforms;
+					Applied = true;
+					break;
+				}
+			}
+		}
 	}
 
 	return NumAppliedUniforms;
@@ -395,6 +614,15 @@ bool ApplyPresetState(reshade::api::effect_runtime *pRuntime, const std::filesys
 	ApplyTechniqueStates(pRuntime, PresetState, NumAppliedTechniques);
 	const int NumAppliedUniforms = ApplyUniformStates(pRuntime, PresetState);
 
+	if(NumAppliedTechniques == 0)
+	{
+		char aMessage[4608];
+		std::snprintf(aMessage, sizeof(aMessage), "[BestClient/ReShadeAddon] Delaying live apply until ReShade finishes loading effects: %s", PresetPath.string().c_str());
+		LogInfo(aMessage);
+		RuntimeState.m_HasAppliedPreset = false;
+		return false;
+	}
+
 	RuntimeState.m_HasAppliedPreset = true;
 
 	char aMessage[4608];
@@ -405,6 +633,52 @@ bool ApplyPresetState(reshade::api::effect_runtime *pRuntime, const std::filesys
 		PresetState.m_SectionValues.size(),
 		NumAppliedUniforms);
 	LogInfo(aMessage);
+
+	if(NumAppliedUniforms == 0 && !PresetState.m_SectionValues.empty() &&
+		(!RuntimeState.m_HasZeroUniformDiagnosticsHash || RuntimeState.m_LastZeroUniformDiagnosticsHash != RuntimeState.m_LastPresetHash))
+	{
+		std::string SectionsSummary;
+		int NumSectionsLogged = 0;
+		for(const auto &[SectionName, SectionValues] : PresetState.m_SectionValues)
+		{
+			(void)SectionValues;
+			if(!SectionsSummary.empty())
+				SectionsSummary += ", ";
+			SectionsSummary += SectionName;
+			if(++NumSectionsLogged >= 6)
+				break;
+		}
+
+		std::string UniformSummary;
+		int NumUniformsLogged = 0;
+		pRuntime->enumerate_uniform_variables(nullptr, [&](reshade::api::effect_runtime *pCurrentRuntime, reshade::api::effect_uniform_variable Variable) {
+			if(NumUniformsLogged >= 10)
+				return;
+
+			char aEffectName[512] = {0};
+			char aUniformName[512] = {0};
+			pCurrentRuntime->get_uniform_variable_effect_name(Variable, aEffectName);
+			pCurrentRuntime->get_uniform_variable_name(Variable, aUniformName);
+			if(aEffectName[0] == '\0' || aUniformName[0] == '\0')
+				return;
+
+			if(!UniformSummary.empty())
+				UniformSummary += ", ";
+			UniformSummary += std::string(aEffectName) + "::" + aUniformName;
+			++NumUniformsLogged;
+		});
+
+		char aDiagnostics[4608];
+		std::snprintf(
+			aDiagnostics, sizeof(aDiagnostics),
+			"[BestClient/ReShadeAddon] Live diagnostics: no uniforms matched. preset_sections=[%s] runtime_uniforms_sample=[%s]",
+			SectionsSummary.c_str(),
+			UniformSummary.c_str());
+		LogWarning(aDiagnostics);
+		RuntimeState.m_LastZeroUniformDiagnosticsHash = RuntimeState.m_LastPresetHash;
+		RuntimeState.m_HasZeroUniformDiagnosticsHash = true;
+	}
+
 	return true;
 }
 
@@ -415,17 +689,30 @@ void RefreshPresetPath(reshade::api::effect_runtime *pRuntime, SRuntimeState &St
 	State.m_PresetPath = std::filesystem::u8path(aPresetPath);
 }
 
+int CountLoadedTechniques(reshade::api::effect_runtime *pRuntime)
+{
+	int NumTechniques = 0;
+	pRuntime->enumerate_techniques(nullptr, [&](reshade::api::effect_runtime *pCurrentRuntime, reshade::api::effect_technique Technique) {
+		(void)pCurrentRuntime;
+		(void)Technique;
+		++NumTechniques;
+	});
+	return NumTechniques;
+}
+
 void OnInitEffectRuntime(reshade::api::effect_runtime *pRuntime)
 {
 	SRuntimeState &State = gs_RuntimeStates[pRuntime];
 	RefreshPresetPath(pRuntime, State);
-	State.m_HasWriteTime = QueryWriteTime(State.m_PresetPath, State.m_LastWriteTime);
+	State.m_HasWriteTime = QueryPresetFingerprint(State.m_PresetPath, State.m_LastWriteTime, State.m_LastPresetHash);
+	State.m_HasPresetHash = State.m_HasWriteTime;
+	State.m_LastFingerprintCheck = std::chrono::steady_clock::now();
+	State.m_EffectsReady = false;
 	const std::string PresetPathString = State.m_PresetPath.string();
 
 	char aMessage[4608];
 	std::snprintf(aMessage, sizeof(aMessage), "[BestClient/ReShadeAddon] Runtime initialized. Watching preset: %s", PresetPathString.c_str());
 	LogInfo(aMessage);
-	ApplyPresetState(pRuntime, State.m_PresetPath, State);
 }
 
 void OnDestroyEffectRuntime(reshade::api::effect_runtime *pRuntime)
@@ -448,23 +735,76 @@ void OnPresent(reshade::api::effect_runtime *pRuntime)
 	if(CurrentPresetPath != State.m_PresetPath)
 	{
 		State.m_PresetPath = CurrentPresetPath;
-		State.m_HasWriteTime = QueryWriteTime(State.m_PresetPath, State.m_LastWriteTime);
+		State.m_HasWriteTime = QueryPresetFingerprint(State.m_PresetPath, State.m_LastWriteTime, State.m_LastPresetHash);
+		State.m_HasPresetHash = State.m_HasWriteTime;
+		State.m_LastFingerprintCheck = {};
+		State.m_HasAppliedPreset = false;
+		State.m_EffectsReady = false;
 	}
 
 	if(State.m_PresetPath.empty())
 		return;
+	if(!State.m_EffectsReady)
+	{
+		if(CountLoadedTechniques(pRuntime) <= 0)
+			return;
+		State.m_EffectsReady = true;
+		State.m_HasAppliedPreset = false;
+		State.m_LastFingerprintCheck = {};
+	}
+
+	const auto Now = std::chrono::steady_clock::now();
+	if(State.m_HasAppliedPreset && State.m_LastFingerprintCheck.time_since_epoch().count() != 0 &&
+		Now - State.m_LastFingerprintCheck < std::chrono::milliseconds(200))
+	{
+		return;
+	}
+	State.m_LastFingerprintCheck = Now;
 
 	std::filesystem::file_time_type WriteTime;
 	if(!QueryWriteTime(State.m_PresetPath, WriteTime))
 		return;
 
-	if(State.m_HasAppliedPreset && State.m_HasWriteTime && WriteTime == State.m_LastWriteTime)
+	size_t PresetHash = 0;
+	if(!QueryPresetFingerprint(State.m_PresetPath, WriteTime, PresetHash))
 		return;
+
+	if(State.m_HasAppliedPreset && State.m_HasWriteTime && State.m_HasPresetHash &&
+		WriteTime == State.m_LastWriteTime && PresetHash == State.m_LastPresetHash)
+	{
+		return;
+	}
 
 	State.m_LastWriteTime = WriteTime;
 	State.m_HasWriteTime = true;
+	State.m_LastPresetHash = PresetHash;
+	State.m_HasPresetHash = true;
 
 	ApplyPresetState(pRuntime, State.m_PresetPath, State);
+}
+
+void OnReloadedEffects(reshade::api::effect_runtime *pRuntime)
+{
+	auto It = gs_RuntimeStates.find(pRuntime);
+	if(It == gs_RuntimeStates.end())
+		return;
+
+	SRuntimeState &State = It->second;
+	State.m_EffectsReady = false;
+	State.m_HasAppliedPreset = false;
+	State.m_LastFingerprintCheck = {};
+	RefreshPresetPath(pRuntime, State);
+
+	std::filesystem::file_time_type WriteTime;
+	size_t PresetHash = 0;
+	if(QueryPresetFingerprint(State.m_PresetPath, WriteTime, PresetHash))
+	{
+		State.m_LastWriteTime = WriteTime;
+		State.m_HasWriteTime = true;
+		State.m_LastPresetHash = PresetHash;
+		State.m_HasPresetHash = true;
+	}
+
 }
 }
 
@@ -475,6 +815,7 @@ extern "C" __declspec(dllexport) bool AddonInit(HMODULE AddonModule, HMODULE ReS
 
 	reshade::register_event<reshade::addon_event::init_effect_runtime>(&OnInitEffectRuntime);
 	reshade::register_event<reshade::addon_event::destroy_effect_runtime>(&OnDestroyEffectRuntime);
+	reshade::register_event<reshade::addon_event::reshade_reloaded_effects>(&OnReloadedEffects);
 	reshade::register_event<reshade::addon_event::reshade_present>(&OnPresent);
 	LogInfo("[BestClient/ReShadeAddon] Add-on initialized.");
 	return true;
@@ -484,6 +825,7 @@ extern "C" __declspec(dllexport) void AddonUninit(HMODULE AddonModule, HMODULE R
 {
 	(void)ReShadeModule;
 	reshade::unregister_event<reshade::addon_event::reshade_present>(&OnPresent);
+	reshade::unregister_event<reshade::addon_event::reshade_reloaded_effects>(&OnReloadedEffects);
 	reshade::unregister_event<reshade::addon_event::destroy_effect_runtime>(&OnDestroyEffectRuntime);
 	reshade::unregister_event<reshade::addon_event::init_effect_runtime>(&OnInitEffectRuntime);
 	reshade::unregister_addon(AddonModule, ReShadeModule);
