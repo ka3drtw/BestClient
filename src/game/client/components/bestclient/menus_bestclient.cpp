@@ -1193,7 +1193,10 @@ static bool BestClientHasReShadeTechniqueInSorting(const SBestClientReShadePrese
 static void BestClientAddReShadeTechniqueToPreset(SBestClientReShadePresetState &PresetState, const std::string &Token, const std::vector<SBestClientReShadeTechniqueMeta> &vTechniqueCatalog)
 {
 	if(BestClientHasReShadeTechniqueInSorting(PresetState, Token))
+	{
+		PresetState.m_EnabledTokens.insert(Token);
 		return;
+	}
 
 	int TokenOrder = (int)vTechniqueCatalog.size();
 	for(size_t Index = 0; Index < vTechniqueCatalog.size(); ++Index)
@@ -1226,6 +1229,7 @@ static void BestClientAddReShadeTechniqueToPreset(SBestClientReShadePresetState 
 	}
 
 	PresetState.m_vTechniqueSorting.insert(InsertPos, Token);
+	PresetState.m_EnabledTokens.insert(Token);
 }
 
 static void BestClientRemoveReShadeTechniqueFromPreset(SBestClientReShadePresetState &PresetState, const std::string &Token)
@@ -1967,6 +1971,8 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 	auto GetUniformRowCount = [](const SBestClientReShadeUniformMeta &UniformMeta) {
 		if(UniformMeta.m_IsColor)
 			return 1;
+		if(!UniformMeta.m_vComboItems.empty())
+			return 2;
 		if(BestClientIsReShadeUniformFloatVectorType(UniformMeta.m_Type))
 			return UniformMeta.m_NumComponents;
 		return 1;
@@ -2062,7 +2068,20 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 			{
 				BestClientAddReShadeTechniqueToPreset(EnsureEditedPreset(), Technique.m_Token, vTechniqueCatalog);
 				s_TechniqueUiStates[Technique.m_Token].m_Expanded = false;
-				SetStatus(BCLocalize("The effect was added to the configured list."), false);
+				if(g_Config.m_BcReshadeAutoAccept == 0)
+				{
+					if(!s_PendingAcceptToken.empty() && s_PendingAcceptToken != Technique.m_Token)
+						BestClientSetReShadeTechniqueEnabled(EnsureEditedPreset(), s_PendingAcceptToken, false);
+					s_PendingAcceptToken = Technique.m_Token;
+					s_PendingAcceptTechniqueName = Technique.m_TechniqueName;
+					s_PendingAcceptStartTick = NowTick;
+					ShowAcceptPopup(Technique.m_TechniqueName, 5);
+					SetStatus(BCLocalize("The effect is live. Confirm it within 5 seconds to keep it enabled."), false);
+				}
+				else
+				{
+					SetStatus(BCLocalize("The effect was added to the configured list."), false);
+				}
 			}
 		}
 		if(vAvailableTechniques.empty())
@@ -2250,19 +2269,21 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 					if(!UniformMeta.m_vComboItems.empty())
 					{
 						CUIRect UniformRect;
-						TechniqueContent.HSplitTop(LineSize, &UniformRect, &TechniqueContent);
+						TechniqueContent.HSplitTop(LineSize * 2.0f + MarginSmall, &UniformRect, &TechniqueContent);
 						TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
 						if(!s_AddedScrollRegion.AddRect(UniformRect))
 							continue;
 
-						CUIRect IndentedRect;
-						UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
 						int IntValue = 0;
 						BestClientTryParseIntText(UniformValueText, IntValue);
 						IntValue = std::clamp(IntValue, 0, (int)UniformMeta.m_vComboItems.size() - 1);
 
+						CUIRect IndentedRect;
+						UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
 						CUIRect LabelRect, ControlRect;
-						IndentedRect.VSplitLeft(200.0f, &LabelRect, &ControlRect);
+						IndentedRect.HSplitTop(LineSize, &LabelRect, &IndentedRect);
+						IndentedRect.HSplitTop(MarginSmall, nullptr, &IndentedRect);
+						ControlRect = IndentedRect;
 						pUi->DoLabel(&LabelRect, UniformMeta.m_Label.c_str(), 14.0f, TEXTALIGN_ML);
 
 						std::vector<const char *> vItemPointers;
@@ -2301,19 +2322,21 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 					if(!UniformMeta.m_vComboItems.empty())
 					{
 						CUIRect UniformRect;
-						TechniqueContent.HSplitTop(LineSize, &UniformRect, &TechniqueContent);
+						TechniqueContent.HSplitTop(LineSize * 2.0f + MarginSmall, &UniformRect, &TechniqueContent);
 						TechniqueContent.HSplitTop(MarginSmall, nullptr, &TechniqueContent);
 						if(!s_AddedScrollRegion.AddRect(UniformRect))
 							continue;
 
-						CUIRect IndentedRect;
-						UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
 						unsigned int UintValue = 0;
 						BestClientTryParseUintText(UniformValueText, UintValue);
 						const int CurrentValue = std::clamp((int)UintValue, 0, (int)UniformMeta.m_vComboItems.size() - 1);
 
+						CUIRect IndentedRect;
+						UniformRect.VSplitLeft(LineSize, nullptr, &IndentedRect);
 						CUIRect LabelRect, ControlRect;
-						IndentedRect.VSplitLeft(200.0f, &LabelRect, &ControlRect);
+						IndentedRect.HSplitTop(LineSize, &LabelRect, &IndentedRect);
+						IndentedRect.HSplitTop(MarginSmall, nullptr, &IndentedRect);
+						ControlRect = IndentedRect;
 						pUi->DoLabel(&LabelRect, UniformMeta.m_Label.c_str(), 14.0f, TEXTALIGN_ML);
 
 						std::vector<const char *> vItemPointers;
