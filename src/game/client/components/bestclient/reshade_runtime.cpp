@@ -1,12 +1,10 @@
 #include "reshade_runtime.h"
 
 #include <base/fs.h>
-#include <base/math.h>
 #include <base/system.h>
 
 #include <engine/storage.h>
 
-#include <algorithm>
 #include <cstdlib>
 #include <string>
 
@@ -112,23 +110,8 @@ EBestClientReShadeAddonStatus BestClientQueryReShadeAddonStatus(IStorage *pStora
 }
 }
 
-float BestClientReShadeDeepFryQualityValue(int QualityPercent)
+bool BestClientReShadeRuntimeCommitPreset(IStorage *pStorage, char *pError, int ErrorSize)
 {
-	const float ClampedPercent = std::clamp((float)QualityPercent, 0.0f, 100.0f);
-	return mix(0.5f, 10.0f, ClampedPercent / 100.0f);
-}
-
-float BestClientReShadeDeepFryRedsValue(int RedsPercent)
-{
-	return std::clamp((float)RedsPercent / 100.0f, 0.0f, 1.0f);
-}
-
-bool BestClientReShadeRuntimeCommitDeepFry(IStorage *pStorage, bool Enabled, int QualityPercent, int RedsPercent, char *pError, int ErrorSize)
-{
-	(void)Enabled;
-	(void)QualityPercent;
-	(void)RedsPercent;
-
 	if(pError != nullptr && ErrorSize > 0)
 		pError[0] = '\0';
 

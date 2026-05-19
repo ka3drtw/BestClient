@@ -212,9 +212,6 @@ MACRO_CONFIG_INT(BcAfterimageAlpha, bc_afterimage_alpha, 40, 1, 100, CFGFLAG_CLI
 MACRO_CONFIG_INT(BcAfterimageSpacing, bc_afterimage_spacing, 18, 1, 64, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Distance between afterimage samples")
 MACRO_CONFIG_INT(BcMotionBlur, bc_motion_blur, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Enable Vulkan motion blur via previous-frame blending")
 MACRO_CONFIG_INT(BcMotionBlurStrength, bc_motion_blur_strength, 140, 1, 400, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Strength of Vulkan motion blur frame blending in percent")
-MACRO_CONFIG_INT(BcReShadeDeepFry, bc_reshade_deepfry, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Enable the ReShade DeepFry prototype effect")
-MACRO_CONFIG_INT(BcReShadeDeepFryQuality, bc_reshade_deepfry_quality, 10, 0, 100, CFGFLAG_CLIENT | CFGFLAG_SAVE, "DeepFry prototype quality")
-MACRO_CONFIG_INT(BcReShadeDeepFryReds, bc_reshade_deepfry_reds, 12, 0, 100, CFGFLAG_CLIENT | CFGFLAG_SAVE, "DeepFry prototype red intensity in percent")
 
 // Jelly tee
 MACRO_CONFIG_INT(BcJellyTee, bc_jelly_tee, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Enable jelly tee deformation")

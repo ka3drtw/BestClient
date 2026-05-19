@@ -3,6 +3,7 @@
 #include <reshade.hpp>
 
 #include <cstdio>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -10,6 +11,8 @@
 #include <string>
 #include <system_error>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 extern "C" __declspec(dllexport) const char *NAME = "BestClient ReShade Live Sync";
 extern "C" __declspec(dllexport) const char *DESCRIPTION = "Applies BestClient ReShade state changes to the current runtime live.";
@@ -17,17 +20,27 @@ extern "C" __declspec(dllexport) const char *AUTHOR = "BestClient";
 
 namespace
 {
-constexpr const char *EFFECT_NAME = "DeepFry.fx";
-constexpr const char *TECHNIQUE_NAME = "DeepFry";
-constexpr const char *UNIFORM_QUALITY = "Quality";
-constexpr const char *UNIFORM_REDS = "Reds";
-constexpr const char *TECHNIQUE_TOKEN = "DeepFry@DeepFry.fx";
-
-struct SDeepFryState
+enum class EUniformValueType
 {
-	bool m_Enabled = false;
-	float m_Quality = 1.0f;
-	float m_Reds = 0.0f;
+	BOOL = 0,
+	INT,
+	UINT,
+	FLOAT,
+};
+
+struct SUniformValue
+{
+	EUniformValueType m_Type = EUniformValueType::FLOAT;
+	bool m_BoolValue = false;
+	int32_t m_IntValue = 0;
+	uint32_t m_UintValue = 0;
+	float m_FloatValue = 0.0f;
+};
+
+struct SPresetState
+{
+	std::unordered_set<std::string> m_EnabledTokens;
+	std::unordered_map<std::string, std::unordered_map<std::string, SUniformValue>> m_SectionValues;
 };
 
 struct SRuntimeState
@@ -35,10 +48,8 @@ struct SRuntimeState
 	std::filesystem::path m_PresetPath;
 	std::filesystem::file_time_type m_LastWriteTime = {};
 	bool m_HasWriteTime = false;
-	SDeepFryState m_LastAppliedState;
-	bool m_HasAppliedState = false;
-	bool m_MissingHandlesWarningShown = false;
 	bool m_PresetReadWarningShown = false;
+	bool m_HasAppliedPreset = false;
 };
 
 std::unordered_map<reshade::api::effect_runtime *, SRuntimeState> gs_RuntimeStates;
@@ -88,17 +99,69 @@ bool TryParseFloat(const std::string &Text, float &Value)
 	return pEnd != Text.c_str() && pEnd != nullptr && *pEnd == '\0';
 }
 
-bool ParseDeepFryState(const std::filesystem::path &PresetPath, SDeepFryState &State)
+bool TryParseInt(const std::string &Text, int32_t &Value)
 {
-	const std::optional<std::string> Text = ReadTextFile(PresetPath);
-	if(!Text.has_value())
+	char *pEnd = nullptr;
+	const long ParsedValue = std::strtol(Text.c_str(), &pEnd, 10);
+	if(pEnd == Text.c_str() || pEnd == nullptr || *pEnd != '\0')
+		return false;
+	Value = (int32_t)ParsedValue;
+	return true;
+}
+
+bool TryParseUint(const std::string &Text, uint32_t &Value)
+{
+	char *pEnd = nullptr;
+	const unsigned long ParsedValue = std::strtoul(Text.c_str(), &pEnd, 10);
+	if(pEnd == Text.c_str() || pEnd == nullptr || *pEnd != '\0')
+		return false;
+	Value = (uint32_t)ParsedValue;
+	return true;
+}
+
+bool TryParseBool(const std::string &Text, bool &Value)
+{
+	if(_stricmp(Text.c_str(), "true") == 0 || Text == "1")
+	{
+		Value = true;
+		return true;
+	}
+	if(_stricmp(Text.c_str(), "false") == 0 || Text == "0")
+	{
+		Value = false;
+		return true;
+	}
+	return false;
+}
+
+std::vector<std::string> SplitCommaSeparated(const std::string &Text)
+{
+	std::vector<std::string> vTokens;
+	size_t TokenStart = 0;
+	while(TokenStart <= Text.size())
+	{
+		const size_t TokenEnd = Text.find(',', TokenStart);
+		const std::string Token = Trim(Text.substr(TokenStart, TokenEnd == std::string::npos ? std::string::npos : TokenEnd - TokenStart));
+		if(!Token.empty())
+			vTokens.push_back(Token);
+		if(TokenEnd == std::string::npos)
+			break;
+		TokenStart = TokenEnd + 1;
+	}
+	return vTokens;
+}
+
+bool ParsePresetState(const std::filesystem::path &PresetPath, SPresetState &State)
+{
+	const std::optional<std::string> PresetText = ReadTextFile(PresetPath);
+	if(!PresetText.has_value())
 		return false;
 
-	State = SDeepFryState{};
+	State = SPresetState{};
 
-	std::istringstream Stream(*Text);
+	std::istringstream Stream(*PresetText);
 	std::string Line;
-	bool InDeepFrySection = false;
+	std::string CurrentSection;
 
 	while(std::getline(Stream, Line))
 	{
@@ -108,8 +171,7 @@ bool ParseDeepFryState(const std::filesystem::path &PresetPath, SDeepFryState &S
 
 		if(TrimmedLine.front() == '[' && TrimmedLine.back() == ']')
 		{
-			const std::string SectionName = TrimmedLine.substr(1, TrimmedLine.size() - 2);
-			InDeepFrySection = SectionName == EFFECT_NAME;
+			CurrentSection = Trim(TrimmedLine.substr(1, TrimmedLine.size() - 2));
 			continue;
 		}
 
@@ -120,48 +182,171 @@ bool ParseDeepFryState(const std::filesystem::path &PresetPath, SDeepFryState &S
 		const std::string Key = Trim(TrimmedLine.substr(0, EqualsPos));
 		const std::string Value = Trim(TrimmedLine.substr(EqualsPos + 1));
 
-		if(!InDeepFrySection)
+		if(CurrentSection.empty())
 		{
 			if(Key == "Techniques")
-				State.m_Enabled = Value.find(TECHNIQUE_TOKEN) != std::string::npos;
+			{
+				for(const std::string &Token : SplitCommaSeparated(Value))
+					State.m_EnabledTokens.insert(Token);
+			}
 			continue;
 		}
 
-		if(Key == UNIFORM_QUALITY)
-			TryParseFloat(Value, State.m_Quality);
-		else if(Key == UNIFORM_REDS)
-			TryParseFloat(Value, State.m_Reds);
+		SUniformValue ParsedValue;
+		bool BoolValue = false;
+		int32_t IntValue = 0;
+		uint32_t UintValue = 0;
+		float FloatValue = 0.0f;
+		if(TryParseBool(Value, BoolValue))
+		{
+			ParsedValue.m_Type = EUniformValueType::BOOL;
+			ParsedValue.m_BoolValue = BoolValue;
+		}
+		else if(TryParseInt(Value, IntValue))
+		{
+			ParsedValue.m_Type = EUniformValueType::INT;
+			ParsedValue.m_IntValue = IntValue;
+		}
+		else if(TryParseUint(Value, UintValue))
+		{
+			ParsedValue.m_Type = EUniformValueType::UINT;
+			ParsedValue.m_UintValue = UintValue;
+		}
+		else if(TryParseFloat(Value, FloatValue))
+		{
+			ParsedValue.m_Type = EUniformValueType::FLOAT;
+			ParsedValue.m_FloatValue = FloatValue;
+		}
+		else
+		{
+			continue;
+		}
+
+		State.m_SectionValues[CurrentSection][Key] = ParsedValue;
 	}
 
 	return true;
 }
 
-bool FindDeepFryHandles(
-	reshade::api::effect_runtime *pRuntime,
-	reshade::api::effect_technique &Technique,
-	reshade::api::effect_uniform_variable &QualityUniform,
-	reshade::api::effect_uniform_variable &RedsUniform,
-	std::string &EffectName)
+std::string BuildTechniqueToken(const char *pTechniqueName, const char *pEffectName)
 {
-	Technique = pRuntime->find_technique(nullptr, TECHNIQUE_NAME);
-	if(Technique == 0)
-		return false;
-
-	char aEffectName[512] = {0};
-	pRuntime->get_technique_effect_name(Technique, aEffectName);
-	EffectName = aEffectName;
-	if(EffectName.empty())
-		EffectName = EFFECT_NAME;
-
-	QualityUniform = pRuntime->find_uniform_variable(EffectName.c_str(), UNIFORM_QUALITY);
-	RedsUniform = pRuntime->find_uniform_variable(EffectName.c_str(), UNIFORM_REDS);
-	return QualityUniform != 0 && RedsUniform != 0;
+	if(pTechniqueName == nullptr || pTechniqueName[0] == '\0')
+		return "";
+	if(pEffectName == nullptr || pEffectName[0] == '\0')
+		return pTechniqueName;
+	return std::string(pTechniqueName) + "@" + pEffectName;
 }
 
-bool ApplyDeepFryState(reshade::api::effect_runtime *pRuntime, const std::filesystem::path &PresetPath, SRuntimeState &RuntimeState)
+void ApplyTechniqueStates(reshade::api::effect_runtime *pRuntime, const SPresetState &PresetState, int &NumAppliedTechniques)
 {
-	SDeepFryState NewState;
-	if(!ParseDeepFryState(PresetPath, NewState))
+	NumAppliedTechniques = 0;
+	pRuntime->enumerate_techniques(nullptr, [&](reshade::api::effect_runtime *pCurrentRuntime, reshade::api::effect_technique Technique) {
+		char aTechniqueName[512] = {0};
+		char aEffectName[512] = {0};
+		pCurrentRuntime->get_technique_name(Technique, aTechniqueName);
+		pCurrentRuntime->get_technique_effect_name(Technique, aEffectName);
+		const std::string Token = BuildTechniqueToken(aTechniqueName, aEffectName);
+		const bool Enabled = PresetState.m_EnabledTokens.find(Token) != PresetState.m_EnabledTokens.end();
+		pCurrentRuntime->set_technique_state(Technique, Enabled);
+		++NumAppliedTechniques;
+	});
+}
+
+int ApplyUniformStates(reshade::api::effect_runtime *pRuntime, const SPresetState &PresetState)
+{
+	int NumAppliedUniforms = 0;
+
+	for(const auto &[EffectName, SectionValues] : PresetState.m_SectionValues)
+	{
+		if(SectionValues.empty())
+			continue;
+
+		pRuntime->enumerate_uniform_variables(EffectName.c_str(), [&](reshade::api::effect_runtime *pCurrentRuntime, reshade::api::effect_uniform_variable Variable) {
+			char aUniformName[512] = {0};
+			pCurrentRuntime->get_uniform_variable_name(Variable, aUniformName);
+			if(aUniformName[0] == '\0')
+				return;
+
+			const auto ValueIt = SectionValues.find(aUniformName);
+			if(ValueIt == SectionValues.end())
+				return;
+
+			reshade::api::format BaseType = reshade::api::format::unknown;
+			uint32_t Rows = 0;
+			uint32_t Columns = 0;
+			uint32_t ArrayLength = 0;
+			pCurrentRuntime->get_uniform_variable_type(Variable, &BaseType, &Rows, &Columns, &ArrayLength);
+			if(Rows != 1 || Columns != 1 || ArrayLength != 1)
+				return;
+
+			const SUniformValue &UniformValue = ValueIt->second;
+			switch(BaseType)
+			{
+			case reshade::api::format::r32_typeless:
+				if(UniformValue.m_Type == EUniformValueType::BOOL)
+				{
+					pCurrentRuntime->set_uniform_value_bool(Variable, &UniformValue.m_BoolValue, 1);
+					++NumAppliedUniforms;
+				}
+				break;
+			case reshade::api::format::r32_sint:
+				if(UniformValue.m_Type == EUniformValueType::INT)
+				{
+					pCurrentRuntime->set_uniform_value_int(Variable, &UniformValue.m_IntValue, 1);
+					++NumAppliedUniforms;
+				}
+				else if(UniformValue.m_Type == EUniformValueType::UINT)
+				{
+					const int32_t SignedValue = (int32_t)UniformValue.m_UintValue;
+					pCurrentRuntime->set_uniform_value_int(Variable, &SignedValue, 1);
+					++NumAppliedUniforms;
+				}
+				break;
+			case reshade::api::format::r32_uint:
+				if(UniformValue.m_Type == EUniformValueType::UINT)
+				{
+					pCurrentRuntime->set_uniform_value_uint(Variable, &UniformValue.m_UintValue, 1);
+					++NumAppliedUniforms;
+				}
+				else if(UniformValue.m_Type == EUniformValueType::INT && UniformValue.m_IntValue >= 0)
+				{
+					const uint32_t UnsignedValue = (uint32_t)UniformValue.m_IntValue;
+					pCurrentRuntime->set_uniform_value_uint(Variable, &UnsignedValue, 1);
+					++NumAppliedUniforms;
+				}
+				break;
+			case reshade::api::format::r32_float:
+				if(UniformValue.m_Type == EUniformValueType::FLOAT)
+				{
+					pCurrentRuntime->set_uniform_value_float(Variable, &UniformValue.m_FloatValue, 1);
+					++NumAppliedUniforms;
+				}
+				else if(UniformValue.m_Type == EUniformValueType::INT)
+				{
+					const float FloatValue = (float)UniformValue.m_IntValue;
+					pCurrentRuntime->set_uniform_value_float(Variable, &FloatValue, 1);
+					++NumAppliedUniforms;
+				}
+				else if(UniformValue.m_Type == EUniformValueType::UINT)
+				{
+					const float FloatValue = (float)UniformValue.m_UintValue;
+					pCurrentRuntime->set_uniform_value_float(Variable, &FloatValue, 1);
+					++NumAppliedUniforms;
+				}
+				break;
+			default:
+				break;
+			}
+		});
+	}
+
+	return NumAppliedUniforms;
+}
+
+bool ApplyPresetState(reshade::api::effect_runtime *pRuntime, const std::filesystem::path &PresetPath, SRuntimeState &RuntimeState)
+{
+	SPresetState PresetState;
+	if(!ParsePresetState(PresetPath, PresetState))
 	{
 		if(!RuntimeState.m_PresetReadWarningShown)
 		{
@@ -174,35 +359,19 @@ bool ApplyDeepFryState(reshade::api::effect_runtime *pRuntime, const std::filesy
 	}
 	RuntimeState.m_PresetReadWarningShown = false;
 
-	reshade::api::effect_technique Technique = {0};
-	reshade::api::effect_uniform_variable QualityUniform = {0};
-	reshade::api::effect_uniform_variable RedsUniform = {0};
-	std::string EffectName;
-	if(!FindDeepFryHandles(pRuntime, Technique, QualityUniform, RedsUniform, EffectName))
-	{
-		if(!RuntimeState.m_MissingHandlesWarningShown)
-		{
-			char aMessage[4608];
-			std::snprintf(aMessage, sizeof(aMessage), "[BestClient/ReShadeAddon] DeepFry technique or uniforms are not available yet. Waiting for effect compilation.");
-			LogWarning(aMessage);
-			RuntimeState.m_MissingHandlesWarningShown = true;
-		}
-		return false;
-	}
-	RuntimeState.m_MissingHandlesWarningShown = false;
+	int NumAppliedTechniques = 0;
+	ApplyTechniqueStates(pRuntime, PresetState, NumAppliedTechniques);
+	const int NumAppliedUniforms = ApplyUniformStates(pRuntime, PresetState);
 
-	pRuntime->set_uniform_value_float(QualityUniform, &NewState.m_Quality, 1);
-	pRuntime->set_uniform_value_float(RedsUniform, &NewState.m_Reds, 1);
-	pRuntime->set_technique_state(Technique, NewState.m_Enabled);
-
-	RuntimeState.m_LastAppliedState = NewState;
-	RuntimeState.m_HasAppliedState = true;
+	RuntimeState.m_HasAppliedPreset = true;
 
 	char aMessage[4608];
 	std::snprintf(
 		aMessage, sizeof(aMessage),
-		"[BestClient/ReShadeAddon] Applied DeepFry live state from '%s': enabled=%d quality=%.6f reds=%.6f",
-		EffectName.c_str(), NewState.m_Enabled ? 1 : 0, NewState.m_Quality, NewState.m_Reds);
+		"[BestClient/ReShadeAddon] Applied preset live: techniques=%d sections=%zu uniforms=%d",
+		NumAppliedTechniques,
+		PresetState.m_SectionValues.size(),
+		NumAppliedUniforms);
 	LogInfo(aMessage);
 	return true;
 }
@@ -224,7 +393,7 @@ void OnInitEffectRuntime(reshade::api::effect_runtime *pRuntime)
 	char aMessage[4608];
 	std::snprintf(aMessage, sizeof(aMessage), "[BestClient/ReShadeAddon] Runtime initialized. Watching preset: %s", PresetPathString.c_str());
 	LogInfo(aMessage);
-	ApplyDeepFryState(pRuntime, State.m_PresetPath, State);
+	ApplyPresetState(pRuntime, State.m_PresetPath, State);
 }
 
 void OnDestroyEffectRuntime(reshade::api::effect_runtime *pRuntime)
@@ -257,13 +426,13 @@ void OnPresent(reshade::api::effect_runtime *pRuntime)
 	if(!QueryWriteTime(State.m_PresetPath, WriteTime))
 		return;
 
-	if(State.m_HasAppliedState && State.m_HasWriteTime && WriteTime == State.m_LastWriteTime)
+	if(State.m_HasAppliedPreset && State.m_HasWriteTime && WriteTime == State.m_LastWriteTime)
 		return;
 
 	State.m_LastWriteTime = WriteTime;
 	State.m_HasWriteTime = true;
 
-	ApplyDeepFryState(pRuntime, State.m_PresetPath, State);
+	ApplyPresetState(pRuntime, State.m_PresetPath, State);
 }
 }
 

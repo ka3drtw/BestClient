@@ -3,8 +3,6 @@
 
 class IStorage;
 
-float BestClientReShadeDeepFryQualityValue(int QualityPercent);
-float BestClientReShadeDeepFryRedsValue(int RedsPercent);
-bool BestClientReShadeRuntimeCommitDeepFry(IStorage *pStorage, bool Enabled, int QualityPercent, int RedsPercent, char *pError, int ErrorSize);
+bool BestClientReShadeRuntimeCommitPreset(IStorage *pStorage, char *pError, int ErrorSize);
 
 #endif
