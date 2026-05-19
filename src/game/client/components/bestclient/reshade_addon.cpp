@@ -26,6 +26,7 @@ enum class EUniformValueType
 	INT,
 	UINT,
 	FLOAT,
+	FLOAT_VECTOR,
 };
 
 struct SUniformValue
@@ -35,6 +36,7 @@ struct SUniformValue
 	int32_t m_IntValue = 0;
 	uint32_t m_UintValue = 0;
 	float m_FloatValue = 0.0f;
+	std::vector<float> m_vFloatValues;
 };
 
 struct SPresetState
@@ -92,11 +94,26 @@ std::optional<std::string> ReadTextFile(const std::filesystem::path &Path)
 	return Buffer.str();
 }
 
+std::vector<std::string> SplitCommaSeparated(const std::string &Text);
+
 bool TryParseFloat(const std::string &Text, float &Value)
 {
 	char *pEnd = nullptr;
 	Value = std::strtof(Text.c_str(), &pEnd);
 	return pEnd != Text.c_str() && pEnd != nullptr && *pEnd == '\0';
+}
+
+bool TryParseFloatVector(const std::string &Text, std::vector<float> &vValues)
+{
+	vValues.clear();
+	for(const std::string &Token : SplitCommaSeparated(Text))
+	{
+		float Value = 0.0f;
+		if(!TryParseFloat(Token, Value))
+			return false;
+		vValues.push_back(Value);
+	}
+	return !vValues.empty();
 }
 
 bool TryParseInt(const std::string &Text, int32_t &Value)
@@ -197,6 +214,7 @@ bool ParsePresetState(const std::filesystem::path &PresetPath, SPresetState &Sta
 		int32_t IntValue = 0;
 		uint32_t UintValue = 0;
 		float FloatValue = 0.0f;
+		std::vector<float> vFloatValues;
 		if(TryParseBool(Value, BoolValue))
 		{
 			ParsedValue.m_Type = EUniformValueType::BOOL;
@@ -216,6 +234,11 @@ bool ParsePresetState(const std::filesystem::path &PresetPath, SPresetState &Sta
 		{
 			ParsedValue.m_Type = EUniformValueType::FLOAT;
 			ParsedValue.m_FloatValue = FloatValue;
+		}
+		else if(TryParseFloatVector(Value, vFloatValues))
+		{
+			ParsedValue.m_Type = EUniformValueType::FLOAT_VECTOR;
+			ParsedValue.m_vFloatValues = std::move(vFloatValues);
 		}
 		else
 		{
@@ -276,26 +299,30 @@ int ApplyUniformStates(reshade::api::effect_runtime *pRuntime, const SPresetStat
 			uint32_t Columns = 0;
 			uint32_t ArrayLength = 0;
 			pCurrentRuntime->get_uniform_variable_type(Variable, &BaseType, &Rows, &Columns, &ArrayLength);
-			if(Rows != 1 || Columns != 1 || ArrayLength != 1)
+			if(ArrayLength != 1)
+				return;
+
+			const uint32_t ComponentCount = Rows * Columns;
+			if(ComponentCount == 0)
 				return;
 
 			const SUniformValue &UniformValue = ValueIt->second;
 			switch(BaseType)
 			{
 			case reshade::api::format::r32_typeless:
-				if(UniformValue.m_Type == EUniformValueType::BOOL)
+				if(UniformValue.m_Type == EUniformValueType::BOOL && ComponentCount == 1)
 				{
 					pCurrentRuntime->set_uniform_value_bool(Variable, &UniformValue.m_BoolValue, 1);
 					++NumAppliedUniforms;
 				}
 				break;
 			case reshade::api::format::r32_sint:
-				if(UniformValue.m_Type == EUniformValueType::INT)
+				if(UniformValue.m_Type == EUniformValueType::INT && ComponentCount == 1)
 				{
 					pCurrentRuntime->set_uniform_value_int(Variable, &UniformValue.m_IntValue, 1);
 					++NumAppliedUniforms;
 				}
-				else if(UniformValue.m_Type == EUniformValueType::UINT)
+				else if(UniformValue.m_Type == EUniformValueType::UINT && ComponentCount == 1)
 				{
 					const int32_t SignedValue = (int32_t)UniformValue.m_UintValue;
 					pCurrentRuntime->set_uniform_value_int(Variable, &SignedValue, 1);
@@ -303,12 +330,12 @@ int ApplyUniformStates(reshade::api::effect_runtime *pRuntime, const SPresetStat
 				}
 				break;
 			case reshade::api::format::r32_uint:
-				if(UniformValue.m_Type == EUniformValueType::UINT)
+				if(UniformValue.m_Type == EUniformValueType::UINT && ComponentCount == 1)
 				{
 					pCurrentRuntime->set_uniform_value_uint(Variable, &UniformValue.m_UintValue, 1);
 					++NumAppliedUniforms;
 				}
-				else if(UniformValue.m_Type == EUniformValueType::INT && UniformValue.m_IntValue >= 0)
+				else if(UniformValue.m_Type == EUniformValueType::INT && UniformValue.m_IntValue >= 0 && ComponentCount == 1)
 				{
 					const uint32_t UnsignedValue = (uint32_t)UniformValue.m_IntValue;
 					pCurrentRuntime->set_uniform_value_uint(Variable, &UnsignedValue, 1);
@@ -316,18 +343,23 @@ int ApplyUniformStates(reshade::api::effect_runtime *pRuntime, const SPresetStat
 				}
 				break;
 			case reshade::api::format::r32_float:
-				if(UniformValue.m_Type == EUniformValueType::FLOAT)
+				if(UniformValue.m_Type == EUniformValueType::FLOAT_VECTOR && ComponentCount <= UniformValue.m_vFloatValues.size())
+				{
+					pCurrentRuntime->set_uniform_value_float(Variable, UniformValue.m_vFloatValues.data(), ComponentCount);
+					++NumAppliedUniforms;
+				}
+				else if(UniformValue.m_Type == EUniformValueType::FLOAT && ComponentCount == 1)
 				{
 					pCurrentRuntime->set_uniform_value_float(Variable, &UniformValue.m_FloatValue, 1);
 					++NumAppliedUniforms;
 				}
-				else if(UniformValue.m_Type == EUniformValueType::INT)
+				else if(UniformValue.m_Type == EUniformValueType::INT && ComponentCount == 1)
 				{
 					const float FloatValue = (float)UniformValue.m_IntValue;
 					pCurrentRuntime->set_uniform_value_float(Variable, &FloatValue, 1);
 					++NumAppliedUniforms;
 				}
-				else if(UniformValue.m_Type == EUniformValueType::UINT)
+				else if(UniformValue.m_Type == EUniformValueType::UINT && ComponentCount == 1)
 				{
 					const float FloatValue = (float)UniformValue.m_UintValue;
 					pCurrentRuntime->set_uniform_value_float(Variable, &FloatValue, 1);
