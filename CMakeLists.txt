@@ -2823,6 +2823,8 @@ if(CLIENT)
     components/bestclient/r_jelly.h
     components/bestclient/r_trail.cpp
     components/bestclient/r_trail.h
+    components/bestclient/reshade_runtime.cpp
+    components/bestclient/reshade_runtime.h
     components/bestclient/subsystem_runtime.h
     components/bestclient/translate.cpp
     components/bestclient/translate.h
@@ -3243,6 +3245,9 @@ if(CLIENT)
   # Silence warnings from ChaiScript
   target_include_directories(game-client SYSTEM PRIVATE
     ${PROJECT_SOURCE_DIR}/src/engine/external/chaiscript)
+
+  target_include_directories(game-client PRIVATE
+    ${PROJECT_SOURCE_DIR}/other/reshade/include)
 
   target_include_directories(game-client SYSTEM PRIVATE
     ${FREETYPE_INCLUDE_DIRS}
@@ -4406,6 +4411,48 @@ foreach(target ${TARGETS_DEP})
     target_compile_options(${target} PRIVATE ${OUR_FLAGS_DEP})
   endif()
 endforeach()
+
+if(TARGET_OS STREQUAL "windows")
+  add_library(bestclient-reshade-live MODULE
+    src/game/client/components/bestclient/reshade_addon.cpp
+  )
+  set_target_properties(bestclient-reshade-live PROPERTIES
+    PREFIX ""
+    SUFFIX ".addon"
+    OUTPUT_NAME "bestclient_reshade_live"
+  )
+  target_compile_features(bestclient-reshade-live PRIVATE cxx_std_20)
+  target_include_directories(bestclient-reshade-live SYSTEM PRIVATE
+    ${CMAKE_SOURCE_DIR}/other/reshade/include_api18
+  )
+  add_custom_command(
+    TARGET bestclient-reshade-live POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "$<TARGET_FILE:bestclient-reshade-live>"
+      "$<TARGET_FILE_DIR:game-client>"
+  )
+
+  add_custom_target(bestclient-reshade-assets ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+      "$<TARGET_FILE_DIR:game-client>/data/reshade"
+    COMMAND ${CMAKE_COMMAND} -E rm -f
+      "$<TARGET_FILE_DIR:game-client>/data/reshade/ReShadePreset.ini"
+    COMMAND ${CMAKE_COMMAND} -E remove_directory
+      "$<TARGET_FILE_DIR:game-client>/reshade-shaders"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${CMAKE_SOURCE_DIR}/other/reshade/ReShade.ini"
+      "$<TARGET_FILE_DIR:game-client>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${CMAKE_SOURCE_DIR}/other/reshade/ReShadePreset.ini"
+      "$<TARGET_FILE_DIR:game-client>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${CMAKE_SOURCE_DIR}/other/reshade/vulkan-1.dll"
+      "$<TARGET_FILE_DIR:game-client>"
+    COMMAND cmd /C "robocopy \"${CMAKE_SOURCE_DIR}/other/reshade/reshade-shaders\" \"$<TARGET_FILE_DIR:game-client>/data/reshade\" /E /NFL /NDL /NJH /NJS /NC /NS /NP >NUL & if %ERRORLEVEL% LEQ 7 exit /B 0 else exit /B %ERRORLEVEL%"
+  )
+  add_dependencies(game-client bestclient-reshade-live)
+  add_dependencies(game-client bestclient-reshade-assets)
+endif()
 
 if(TARGET_OS STREQUAL "windows" AND STEAM AND NOT CMAKE_BUILD_TYPE STREQUAL Debug)
   add_custom_command(

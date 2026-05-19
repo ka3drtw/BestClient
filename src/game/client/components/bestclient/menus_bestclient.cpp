@@ -1,3 +1,5 @@
+#include <base/fs.h>
+#include <base/io.h>
 #include <base/log.h>
 #include <base/math.h>
 #include <base/system.h>
@@ -28,9 +30,12 @@
 #include <game/client/ui_scrollregion.h>
 #include <game/localization.h>
 
+#include "reshade_runtime.h"
+
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <memory>
 #include <numeric>
 #include <string>
@@ -50,6 +55,135 @@ static bool IsBestClientTabFlagSet(int32_t Flags, int Tab)
 {
 	return (Flags & (1 << Tab)) != 0;
 }
+
+#if defined(CONF_FAMILY_WINDOWS)
+static constexpr const char *gs_pBestClientReShadeFolderPath = "data/reshade";
+static constexpr const char *gs_pBestClientReShadePresetPath = "ReShadePreset.ini";
+
+static void BestClientSetIniRootKey(std::string &Text, const char *pKey, const std::string &Value)
+{
+	const std::string Prefix = std::string(pKey) + "=";
+	const size_t FirstSectionPos = Text.find('[');
+	const size_t SearchEnd = FirstSectionPos == std::string::npos ? Text.size() : FirstSectionPos;
+
+	size_t LineStart = 0;
+	while(LineStart <= SearchEnd)
+	{
+		size_t LineEnd = Text.find('\n', LineStart);
+		if(LineEnd == std::string::npos || LineEnd > SearchEnd)
+			LineEnd = SearchEnd;
+		if(Text.compare(LineStart, Prefix.size(), Prefix) == 0)
+		{
+			Text.replace(LineStart, LineEnd - LineStart, Prefix + Value);
+			return;
+		}
+		if(LineEnd >= SearchEnd)
+			break;
+		LineStart = LineEnd + 1;
+	}
+
+	Text.insert(0, Prefix + Value + "\n");
+}
+
+static void BestClientSetIniSectionKey(std::string &Text, const char *pSection, const char *pKey, const std::string &Value)
+{
+	const std::string SectionHeader = std::string("[") + pSection + "]";
+	const std::string Prefix = std::string(pKey) + "=";
+	size_t SectionPos = Text.find(SectionHeader);
+	if(SectionPos == std::string::npos)
+	{
+		if(!Text.empty() && Text.back() != '\n')
+			Text.push_back('\n');
+		Text += SectionHeader + "\n" + Prefix + Value + "\n";
+		return;
+	}
+
+	size_t ContentStart = Text.find('\n', SectionPos);
+	if(ContentStart == std::string::npos)
+	{
+		Text += "\n" + Prefix + Value + "\n";
+		return;
+	}
+	++ContentStart;
+
+	size_t SectionEnd = Text.find("\n[", ContentStart);
+	if(SectionEnd == std::string::npos)
+		SectionEnd = Text.size();
+
+	for(size_t LineStart = ContentStart; LineStart < SectionEnd;)
+	{
+		size_t LineEnd = Text.find('\n', LineStart);
+		if(LineEnd == std::string::npos || LineEnd > SectionEnd)
+			LineEnd = SectionEnd;
+		if(Text.compare(LineStart, Prefix.size(), Prefix) == 0)
+		{
+			Text.replace(LineStart, LineEnd - LineStart, Prefix + Value);
+			return;
+		}
+		if(LineEnd >= SectionEnd)
+			break;
+		LineStart = LineEnd + 1;
+	}
+
+	if(SectionEnd == Text.size())
+	{
+		if(!Text.empty() && Text.back() != '\n')
+			Text.push_back('\n');
+		Text += Prefix + Value + "\n";
+	}
+	else
+	{
+		Text.insert(SectionEnd + 1, Prefix + Value + "\n");
+	}
+}
+
+static bool BestClientSyncReShadeDeepFryPreset(IStorage *pStorage, char *pError, int ErrorSize)
+{
+	char aPresetAbsolutePath[IO_MAX_PATH_LENGTH];
+	pStorage->GetBinaryPath(gs_pBestClientReShadePresetPath, aPresetAbsolutePath, sizeof(aPresetAbsolutePath));
+
+	char *pExistingText = pStorage->ReadFileStr(aPresetAbsolutePath, IStorage::TYPE_ABSOLUTE);
+	std::string PresetText = pExistingText != nullptr ? pExistingText : "";
+	if(pExistingText != nullptr)
+		free(pExistingText);
+
+	char aQuality[32];
+	char aReds[32];
+	str_format(aQuality, sizeof(aQuality), "%.6f", BestClientReShadeDeepFryQualityValue(g_Config.m_BcReShadeDeepFryQuality));
+	str_format(aReds, sizeof(aReds), "%.6f", BestClientReShadeDeepFryRedsValue(g_Config.m_BcReShadeDeepFryReds));
+
+	BestClientSetIniRootKey(PresetText, "Techniques", g_Config.m_BcReShadeDeepFry ? "DeepFry@DeepFry.fx" : "");
+	BestClientSetIniSectionKey(PresetText, "DeepFry.fx", "Quality", aQuality);
+	BestClientSetIniSectionKey(PresetText, "DeepFry.fx", "Reds", aReds);
+
+	if(fs_makedir_rec_for(aPresetAbsolutePath) != 0)
+	{
+		str_format(pError, ErrorSize, "Failed to create folder for %s", gs_pBestClientReShadePresetPath);
+		return false;
+	}
+
+	IOHANDLE File = pStorage->OpenFile(aPresetAbsolutePath, IOFLAG_WRITE, IStorage::TYPE_ABSOLUTE);
+	if(!File)
+	{
+		str_format(pError, ErrorSize, "Failed to open %s for writing", gs_pBestClientReShadePresetPath);
+		return false;
+	}
+
+	const unsigned TextSize = (unsigned)PresetText.size();
+	const bool WriteOk = io_write(File, PresetText.c_str(), TextSize) == TextSize;
+	io_close(File);
+	if(!WriteOk)
+	{
+		str_format(pError, ErrorSize, "Failed to write %s", gs_pBestClientReShadePresetPath);
+		return false;
+	}
+
+	if(ErrorSize > 0)
+		pError[0] = '\0';
+	return true;
+}
+
+#endif
 
 enum
 {
@@ -1187,6 +1321,123 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 			}
 			Column.HSplitTop(MarginBetweenSections, nullptr, &Column);
 		}
+
+#if defined(CONF_FAMILY_WINDOWS)
+		// ReShade DeepFry prototype (right column block)
+		{
+			static float s_ReShadeDeepFryPhase = 0.0f;
+			static CButtonContainer s_ReShadeDeepFryResetButton;
+			static CButtonContainer s_ReShadeFolderButton;
+			static CButtonContainer s_ReShadePresetButton;
+			static std::string s_ReShadeStatusText;
+			static bool s_ReShadeStatusIsError = false;
+
+			const bool DeepFryEnabled = g_Config.m_BcReShadeDeepFry != 0;
+			UpdateRevealPhase(s_ReShadeDeepFryPhase, DeepFryEnabled);
+
+			const float ToolsHeight = 2.0f * LineSize + MarginSmall;
+			const float InfoHeight = LineSize;
+			const float ExtraTargetHeight = 2.0f * LineSize;
+			const float ContentHeight = LineSize + MarginSmall + LineSize + MarginSmall + ToolsHeight + MarginSmall + InfoHeight + ExtraTargetHeight * s_ReShadeDeepFryPhase;
+			CUIRect Content, Label, Row, Visible;
+			BeginBlock(Column, ContentHeight, Content);
+
+			Content.HSplitTop(LineSize, &Label, &Content);
+			CUIRect TitleLabel, ResetButton, ResetHitbox;
+			Label.VSplitRight(LineSize + 8.0f, &TitleLabel, &ResetButton);
+			ResetHitbox = ResetButton;
+			const bool ReShadeResetClicked = Ui()->DoButton_FontIcon(&s_ReShadeDeepFryResetButton, FontIcon::ARROW_ROTATE_LEFT, 0, &ResetHitbox, BUTTONFLAG_LEFT);
+			GameClient()->m_Tooltips.DoToolTip(&s_ReShadeDeepFryResetButton, &ResetHitbox, BCLocalize("Reset to defaults"));
+			if(ReShadeResetClicked)
+			{
+				g_Config.m_BcReShadeDeepFryQuality = DefaultConfig::BcReShadeDeepFryQuality;
+				g_Config.m_BcReShadeDeepFryReds = DefaultConfig::BcReShadeDeepFryReds;
+			}
+			Ui()->DoLabel(&TitleLabel, BCLocalize("ReShade: DeepFry"), HeadlineFontSize, TEXTALIGN_ML);
+			Content.HSplitTop(MarginSmall, nullptr, &Content);
+
+			bool NeedsPresetSync = DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_BcReShadeDeepFry, BCLocalize("Enable DeepFry prototype"), &g_Config.m_BcReShadeDeepFry, &Content, LineSize);
+			if(ReShadeResetClicked)
+				NeedsPresetSync = true;
+
+			Content.HSplitTop(MarginSmall, nullptr, &Content);
+			Content.HSplitTop(ToolsHeight, &Row, &Content);
+			CUIRect FolderButton, PresetButton;
+			Row.VSplitMid(&FolderButton, &PresetButton, MarginSmall);
+			if(DoButton_Menu(&s_ReShadeFolderButton, BCLocalize("Open data/reshade"), 0, &FolderButton))
+			{
+				char aFolderPath[IO_MAX_PATH_LENGTH];
+				Storage()->GetBinaryPathAbsolute(gs_pBestClientReShadeFolderPath, aFolderPath, sizeof(aFolderPath));
+				Client()->ViewFile(aFolderPath);
+			}
+			if(DoButton_Menu(&s_ReShadePresetButton, BCLocalize("Open preset"), 0, &PresetButton))
+			{
+				char aPresetPath[IO_MAX_PATH_LENGTH];
+				Storage()->GetBinaryPathAbsolute(gs_pBestClientReShadePresetPath, aPresetPath, sizeof(aPresetPath));
+				Client()->ViewFile(aPresetPath);
+			}
+
+			Content.HSplitTop(MarginSmall, nullptr, &Content);
+			Content.HSplitTop(InfoHeight, &Row, &Content);
+			const char *pReShadeHint = s_ReShadeStatusText.empty() ? BCLocalize("Writes to ReShadePreset.ini and applies DeepFry live through the ReShade add-on.") : s_ReShadeStatusText.c_str();
+			if(!s_ReShadeStatusText.empty() && s_ReShadeStatusIsError)
+				TextRender()->TextColor(1.0f, 0.4f, 0.4f, 1.0f);
+			else if(!s_ReShadeStatusText.empty())
+				TextRender()->TextColor(0.55f, 1.0f, 0.55f, 1.0f);
+			Ui()->DoLabel(&Row, pReShadeHint, 12.0f, TEXTALIGN_ML);
+			TextRender()->TextColor(TextRender()->DefaultTextColor());
+
+			const float ExtraHeight = ExtraTargetHeight * s_ReShadeDeepFryPhase;
+			if(!ReShadeResetClicked && ExtraHeight > 0.0f)
+			{
+				Content.HSplitTop(ExtraHeight, &Visible, &Content);
+				Ui()->ClipEnable(&Visible);
+				struct SScopedClip
+				{
+					CUi *m_pUi;
+					~SScopedClip() { m_pUi->ClipDisable(); }
+				} ClipGuard{Ui()};
+
+				CUIRect Expand = {Visible.x, Visible.y, Visible.w, ExtraTargetHeight};
+				Expand.HSplitTop(LineSize, &Row, &Expand);
+				NeedsPresetSync |= Ui()->DoScrollbarOption(&g_Config.m_BcReShadeDeepFryQuality, &g_Config.m_BcReShadeDeepFryQuality, &Row, BCLocalize("DeepFry quality"), 0, 100);
+
+				Expand.HSplitTop(LineSize, &Row, &Expand);
+				NeedsPresetSync |= Ui()->DoScrollbarOption(&g_Config.m_BcReShadeDeepFryReds, &g_Config.m_BcReShadeDeepFryReds, &Row, BCLocalize("Red intensity"), 0, 100, &CUi::ms_LinearScrollbarScale, 0u, "%");
+			}
+
+			char aSilentLiveError[128];
+			BestClientReShadeRuntimeApplyDeepFry(Storage(), g_Config.m_BcReShadeDeepFry, g_Config.m_BcReShadeDeepFryQuality, g_Config.m_BcReShadeDeepFryReds, aSilentLiveError, sizeof(aSilentLiveError));
+
+			if(NeedsPresetSync)
+			{
+				char aError[128];
+				if(BestClientSyncReShadeDeepFryPreset(Storage(), aError, sizeof(aError)))
+				{
+					char aRuntimeError[128];
+					if(BestClientReShadeRuntimeCommitDeepFry(Storage(), g_Config.m_BcReShadeDeepFry, g_Config.m_BcReShadeDeepFryQuality, g_Config.m_BcReShadeDeepFryReds, aRuntimeError, sizeof(aRuntimeError)))
+					{
+						s_ReShadeStatusText = BCLocalize("Saved to the preset and applied to the current ReShade runtime.");
+						s_ReShadeStatusIsError = false;
+					}
+					else
+					{
+						char aStatus[256];
+						str_format(aStatus, sizeof(aStatus), "Saved to the preset, but live apply is unavailable: %s", aRuntimeError);
+						s_ReShadeStatusText = aStatus;
+						s_ReShadeStatusIsError = true;
+					}
+				}
+				else
+				{
+					s_ReShadeStatusText = aError;
+					s_ReShadeStatusIsError = true;
+				}
+			}
+
+			Column.HSplitTop(MarginBetweenSections, nullptr, &Column);
+		}
+#endif
 
 		// Animations (right column block)
 		if(!GameClient()->m_BestClient.IsComponentDisabled(CBestClient::COMPONENT_VISUALS_ANIMATIONS))
