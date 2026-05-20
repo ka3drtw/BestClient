@@ -27,11 +27,12 @@
 #include <game/teamscore.h>
 
 // components
+#include "components/bestclient/bestclient.h"
+#include "components/hud.h"
 #include "components/background.h"
 #include "components/bestclient/3d_particles.h"
 #include "components/bestclient/admin_panel.h"
 #include "components/bestclient/afterimage.h"
-#include "components/bestclient/bestclient.h"
 #include "components/bestclient/clientindicator/client_indicator.h"
 #include "components/bestclient/fast_actions.h"
 #include "components/bestclient/fast_practice.h"
@@ -57,7 +58,6 @@
 #include "components/flow.h"
 #include "components/freezebars.h"
 #include "components/ghost.h"
-#include "components/hud.h"
 #include "components/important_alert.h"
 #include "components/infomessages.h"
 #include "components/items.h"
