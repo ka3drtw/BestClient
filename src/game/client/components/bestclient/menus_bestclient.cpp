@@ -1790,6 +1790,7 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 	static std::string s_PendingAcceptToken;
 	static std::string s_PendingAcceptTechniqueName;
 	static int64_t s_PendingAcceptStartTick = 0;
+	static bool s_PendingAcceptRemovesTechnique = false;
 	static CUi::SConfirmPopupContext s_AcceptPopupContext;
 	static SBestClientReShadePresetState s_PendingSavePresetState;
 	static bool s_HasPendingSavePreset = false;
@@ -1934,6 +1935,7 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 		s_PendingAcceptToken.clear();
 		s_PendingAcceptTechniqueName.clear();
 		s_PendingAcceptStartTick = 0;
+		s_PendingAcceptRemovesTechnique = false;
 		s_AcceptPopupContext.Reset();
 	};
 	auto CurrentPresetState = [&]() -> const SBestClientReShadePresetState & {
@@ -1943,14 +1945,48 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 		gs_BestClientReShadeUiCache.m_StatusText = pText;
 		gs_BestClientReShadeUiCache.m_StatusIsError = Error;
 	};
+	auto FormatAcceptMessage = [&](const std::string &TechniqueName, int SecondsRemaining, bool RemoveOnReject) {
+		char aMessage[512];
+		if(RemoveOnReject)
+			str_format(aMessage, sizeof(aMessage), BCLocalize("Confirm keeping \"%s\" enabled within %d seconds. Otherwise it will be removed automatically."), TechniqueName.c_str(), SecondsRemaining);
+		else
+			str_format(aMessage, sizeof(aMessage), BCLocalize("Confirm keeping \"%s\" enabled within %d seconds. Otherwise it will be disabled automatically."), TechniqueName.c_str(), SecondsRemaining);
+		return std::string(aMessage);
+	};
+	auto RejectPendingAccept = [&](bool TimedOut, bool UpdateStatus) {
+		if(s_PendingAcceptToken.empty())
+			return;
+
+		if(s_PendingAcceptRemovesTechnique)
+		{
+			BestClientRemoveReShadeTechniqueFromPreset(EnsureEditedPreset(), s_PendingAcceptToken);
+			if(UpdateStatus)
+			{
+				if(TimedOut)
+					SetStatus(BCLocalize("The effect was removed automatically because it was not confirmed in time."), true);
+				else
+					SetStatus(BCLocalize("The effect was removed because it was not confirmed."), true);
+			}
+		}
+		else
+		{
+			BestClientSetReShadeTechniqueEnabled(EnsureEditedPreset(), s_PendingAcceptToken, false);
+			if(UpdateStatus)
+			{
+				if(TimedOut)
+					SetStatus(BCLocalize("The effect was disabled automatically because it was not confirmed in time."), true);
+				else
+					SetStatus(BCLocalize("The effect was disabled because it was not confirmed."), true);
+			}
+		}
+	};
 	auto ShowAcceptPopup = [&](const std::string &TechniqueName, int SecondsRemaining) {
 		s_AcceptPopupContext.Reset();
 		s_AcceptPopupContext.YesNoButtons();
 		str_copy(s_AcceptPopupContext.m_aPositiveButtonLabel, BCLocalize("Keep enabled"), sizeof(s_AcceptPopupContext.m_aPositiveButtonLabel));
-		str_copy(s_AcceptPopupContext.m_aNegativeButtonLabel, BCLocalize("Disable"), sizeof(s_AcceptPopupContext.m_aNegativeButtonLabel));
-		char aMessage[512];
-		str_format(aMessage, sizeof(aMessage), BCLocalize("Confirm keeping \"%s\" enabled within %d seconds. Otherwise it will be disabled automatically."), TechniqueName.c_str(), SecondsRemaining);
-		str_copy(s_AcceptPopupContext.m_aMessage, aMessage, sizeof(s_AcceptPopupContext.m_aMessage));
+		str_copy(s_AcceptPopupContext.m_aNegativeButtonLabel, s_PendingAcceptRemovesTechnique ? BCLocalize("Remove") : BCLocalize("Disable"), sizeof(s_AcceptPopupContext.m_aNegativeButtonLabel));
+		const std::string Message = FormatAcceptMessage(TechniqueName, SecondsRemaining, s_PendingAcceptRemovesTechnique);
+		str_copy(s_AcceptPopupContext.m_aMessage, Message.c_str(), sizeof(s_AcceptPopupContext.m_aMessage));
 		pUi->ShowPopupConfirm(pUi->Screen()->x + pUi->Screen()->w * 0.5f, pUi->Screen()->y + pUi->Screen()->h * 0.35f, &s_AcceptPopupContext);
 	};
 
@@ -1964,15 +2000,13 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 		}
 		else if(s_AcceptPopupContext.m_Result == CUi::SConfirmPopupContext::CANCELED)
 		{
-			BestClientSetReShadeTechniqueEnabled(EnsureEditedPreset(), s_PendingAcceptToken, false);
-			SetStatus(BCLocalize("The effect was disabled because it was not confirmed."), true);
+			RejectPendingAccept(false, true);
 			ClearPendingAccept();
 		}
 		else if(pUi->IsPopupOpen(&s_AcceptPopupContext))
 		{
-			char aMessage[512];
-			str_format(aMessage, sizeof(aMessage), BCLocalize("Confirm keeping \"%s\" enabled within %d seconds. Otherwise it will be disabled automatically."), s_PendingAcceptTechniqueName.c_str(), SecondsRemaining);
-			str_copy(s_AcceptPopupContext.m_aMessage, aMessage, sizeof(s_AcceptPopupContext.m_aMessage));
+			const std::string Message = FormatAcceptMessage(s_PendingAcceptTechniqueName, SecondsRemaining, s_PendingAcceptRemovesTechnique);
+			str_copy(s_AcceptPopupContext.m_aMessage, Message.c_str(), sizeof(s_AcceptPopupContext.m_aMessage));
 		}
 		else if(s_AcceptPopupContext.m_Result == CUi::SConfirmPopupContext::UNSET)
 		{
@@ -1985,8 +2019,7 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 		}
 		else if(s_PendingAcceptStartTick > 0 && NowTick - s_PendingAcceptStartTick >= AcceptTimeout)
 		{
-			BestClientSetReShadeTechniqueEnabled(EnsureEditedPreset(), s_PendingAcceptToken, false);
-			SetStatus(BCLocalize("The effect was disabled automatically because it was not confirmed in time."), true);
+			RejectPendingAccept(true, true);
 			pUi->ClosePopupMenu(&s_AcceptPopupContext);
 			ClearPendingAccept();
 		}
@@ -2147,10 +2180,11 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 				if(g_Config.m_BcReshadeAutoAccept == 0)
 				{
 					if(!s_PendingAcceptToken.empty() && s_PendingAcceptToken != Technique.m_Token)
-						BestClientSetReShadeTechniqueEnabled(EnsureEditedPreset(), s_PendingAcceptToken, false);
+						RejectPendingAccept(false, false);
 					s_PendingAcceptToken = Technique.m_Token;
 					s_PendingAcceptTechniqueName = Technique.m_TechniqueName;
 					s_PendingAcceptStartTick = NowTick;
+					s_PendingAcceptRemovesTechnique = true;
 					ShowAcceptPopup(Technique.m_TechniqueName, 5);
 					SetStatus(BCLocalize("The effect is live. Confirm it within 5 seconds to keep it enabled."), false);
 				}
@@ -2254,10 +2288,11 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 					else if(NewEnabled && g_Config.m_BcReshadeAutoAccept == 0)
 					{
 						if(!s_PendingAcceptToken.empty() && s_PendingAcceptToken != Technique.m_Token)
-							BestClientSetReShadeTechniqueEnabled(EnsureEditedPreset(), s_PendingAcceptToken, false);
+							RejectPendingAccept(false, false);
 						s_PendingAcceptToken = Technique.m_Token;
 						s_PendingAcceptTechniqueName = Technique.m_TechniqueName;
 						s_PendingAcceptStartTick = NowTick;
+						s_PendingAcceptRemovesTechnique = false;
 						ShowAcceptPopup(Technique.m_TechniqueName, 5);
 						SetStatus(BCLocalize("The effect is live. Confirm it within 5 seconds to keep it enabled."), false);
 					}
