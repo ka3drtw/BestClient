@@ -2018,7 +2018,56 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 		vAvailableTechniques.push_back(Technique);
 	}
 
+	static const std::array<const char *, 6> s_apPinnedReShadeEffects = {
+		"ASCII",
+		"CShade_Lens",
+		"DeepFry",
+		"MagicHDR",
+		"Composite",
+		"PaletteMap",
+	};
+	auto GetPinnedTechniquePriority = [&](const SBestClientReShadeTechniqueMeta &Technique) {
+		auto MatchesPinnedEffect = [&](const char *pPinnedEffect) {
+			const int PinnedLength = str_length(pPinnedEffect);
+			if(str_comp_nocase(Technique.m_TechniqueName.c_str(), pPinnedEffect) == 0)
+				return true;
+			if(str_comp_nocase(Technique.m_EffectName.c_str(), pPinnedEffect) == 0)
+				return true;
+			if((int)Technique.m_EffectName.size() > PinnedLength &&
+				Technique.m_EffectName[PinnedLength] == '.' &&
+				str_comp_nocase_num(Technique.m_EffectName.c_str(), pPinnedEffect, PinnedLength) == 0)
+			{
+				return true;
+			}
+			if((int)Technique.m_Token.size() > PinnedLength &&
+				Technique.m_Token[PinnedLength] == '@' &&
+				str_comp_nocase_num(Technique.m_Token.c_str(), pPinnedEffect, PinnedLength) == 0)
+			{
+				return true;
+			}
+			return false;
+		};
+
+		for(size_t Index = 0; Index < s_apPinnedReShadeEffects.size(); ++Index)
+		{
+			if(MatchesPinnedEffect(s_apPinnedReShadeEffects[Index]))
+				return (int)Index;
+		}
+		return -1;
+	};
+
 	std::sort(vAvailableTechniques.begin(), vAvailableTechniques.end(), [&](const SBestClientReShadeTechniqueMeta &Left, const SBestClientReShadeTechniqueMeta &Right) {
+		const int LeftPinnedPriority = GetPinnedTechniquePriority(Left);
+		const int RightPinnedPriority = GetPinnedTechniquePriority(Right);
+		if(LeftPinnedPriority != RightPinnedPriority)
+		{
+			if(LeftPinnedPriority < 0)
+				return false;
+			if(RightPinnedPriority < 0)
+				return true;
+			return LeftPinnedPriority < RightPinnedPriority;
+		}
+
 		if(s_AvailableSort == BESTCLIENT_RESHADE_SORT_EFFECT_ASC)
 		{
 			const int EffectCompare = str_comp_nocase(Left.m_EffectName.c_str(), Right.m_EffectName.c_str());
@@ -2109,12 +2158,24 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 		CScrollRegionParams AvailableScrollParams;
 		AvailableScrollParams.m_Flags = CScrollRegionParams::FLAG_CONTENT_STATIC_WIDTH;
 		s_AvailableScrollRegion.Begin(&ListArea, &AvailableScrollOffset, &AvailableScrollParams);
+		auto RenderPinnedTechniqueStar = [&](const CUIRect &Rect) {
+			pTextRender->SetFontPreset(EFontPreset::ICON_FONT);
+			pTextRender->SetRenderFlags(ETextRenderFlags::TEXT_RENDER_FLAG_ONLY_ADVANCE_WIDTH | ETextRenderFlags::TEXT_RENDER_FLAG_NO_X_BEARING | ETextRenderFlags::TEXT_RENDER_FLAG_NO_Y_BEARING | ETextRenderFlags::TEXT_RENDER_FLAG_NO_PIXEL_ALIGNMENT | ETextRenderFlags::TEXT_RENDER_FLAG_NO_OVERSIZE);
+			pTextRender->TextColor(ColorRGBA(1.0f, 0.85f, 0.3f, 0.8f));
+			SLabelProperties Props;
+			Props.m_MaxWidth = Rect.w;
+			pUi->DoLabel(&Rect, FontIcon::STAR, 12.0f, TEXTALIGN_MC, Props);
+			pTextRender->TextColor(pTextRender->DefaultTextColor());
+			pTextRender->SetRenderFlags(0);
+			pTextRender->SetFontPreset(EFontPreset::DEFAULT_FONT);
+		};
 
 		CUIRect Content = ListArea;
 		Content.y += AvailableScrollOffset.y;
 		for(const SBestClientReShadeTechniqueMeta &Technique : vAvailableTechniques)
 		{
 			STechniqueUiState &TechniqueUi = s_TechniqueUiStates[Technique.m_Token];
+			const bool IsPinnedTechnique = GetPinnedTechniquePriority(Technique) >= 0;
 			CUIRect ItemRect;
 			Content.HSplitTop(44.0f, &ItemRect, &Content);
 			Content.HSplitTop(MarginSmall, nullptr, &Content);
@@ -2127,8 +2188,10 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 			ItemInner.VMargin(8.0f, &ItemInner);
 			ItemInner.HMargin(8.0f, &ItemInner);
 
-			CUIRect AddButtonRect;
+			CUIRect AddButtonRect, PinnedIconRect;
 			ItemInner.VSplitRight(IconButtonSize, &ItemInner, &AddButtonRect);
+			if(IsPinnedTechnique)
+				ItemInner.VSplitRight(IconButtonSize, &ItemInner, &PinnedIconRect);
 
 			CUIRect NameRow, EffectRow;
 			ItemInner.HSplitTop(LineSize, &NameRow, &ItemInner);
@@ -2140,6 +2203,8 @@ static void RenderSettingsBestClientReShadeTab(CMenus *pMenus, IStorage *pStorag
 			pTextRender->TextColor(1.0f, 1.0f, 1.0f, 0.7f);
 			pUi->DoLabel(&EffectRow, aEffectLabel, 10.0f, TEXTALIGN_ML);
 			pTextRender->TextColor(pTextRender->DefaultTextColor());
+			if(IsPinnedTechnique)
+				RenderPinnedTechniqueStar(PinnedIconRect);
 
 			if(pUi->DoButton_FontIcon(&TechniqueUi.m_AddButton, FontIcon::PLUS, 0, &AddButtonRect, BUTTONFLAG_LEFT))
 			{
