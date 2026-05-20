@@ -131,8 +131,6 @@ static bool QueryPortableReShadeConfigPath(char *pConfigPath, int ConfigPathSize
 
 static bool QueryPortableReShadeConfigEnabled(bool &Enabled)
 {
-	Enabled = true;
-
 	char aConfigPath[IO_MAX_PATH_LENGTH];
 	if(!QueryPortableReShadeConfigPath(aConfigPath, sizeof(aConfigPath)))
 		return false;
@@ -315,7 +313,7 @@ static void ConfigurePortableReShadeLayerEnvironmentEarly()
 	if(!HasLayerDll || (!HasLayerManifest && !HasDisabledLayerManifest))
 		return;
 
-	bool ReShadeEnabled = true;
+	bool ReShadeEnabled = false;
 	QueryPortableReShadeConfigEnabled(ReShadeEnabled);
 
 	EnsurePortableReShadeUserLayerRegistration(aBinaryDir, HasLayerDll, HasLayerManifest, HasDisabledLayerManifest);
