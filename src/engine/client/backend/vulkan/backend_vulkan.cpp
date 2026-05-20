@@ -3631,11 +3631,15 @@ public:
 
 		std::set<std::string> ReqLayerNames = OurVKLayers();
 		vVKLayers.clear();
+#if defined(CONF_FAMILY_WINDOWS)
 		bool HasPortableReShadeLayer = false;
+#endif
 		for(const auto &LayerName : vVKInstanceLayers)
 		{
+#if defined(CONF_FAMILY_WINDOWS)
 			if(str_comp(LayerName.layerName, gs_pPortableReShadeLayerName) == 0)
 				HasPortableReShadeLayer = true;
+#endif
 
 			if(ReqLayerNames.contains(std::string(LayerName.layerName)))
 			{
