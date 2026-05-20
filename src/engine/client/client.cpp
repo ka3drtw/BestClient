@@ -43,6 +43,7 @@
 #include <engine/shared/fifo.h>
 #include <engine/shared/filecollection.h>
 #include <engine/shared/http.h>
+#include <engine/shared/linereader.h>
 #include <engine/shared/masterserver.h>
 #include <engine/shared/network.h>
 #include <engine/shared/packer.h>
@@ -103,6 +104,64 @@ static constexpr const char *gs_pPortableReShadeLayerManifestFilename = "ReShade
 static constexpr const char *gs_pPortableReShadeLayerDisabledManifestFilename = "ReShade64.reshade-disabled.json";
 static constexpr const char *gs_pPortableReShadeLayerDisableEnv = "DISABLE_VK_LAYER_reshade_1";
 static constexpr const char *gs_pPortableReShadeAppsFilename = "ReShadeApps.ini";
+static constexpr const char *gs_pPortableReShadeConfigFilename = "settings_BestClient.cfg";
+static constexpr const char *gs_pPortableReShadeEnabledConfigName = "bc_reshade_enabled";
+
+static bool QueryPortableReShadeConfigPath(char *pConfigPath, int ConfigPathSize)
+{
+	static constexpr const char *s_apUserDirs[] = {
+		"DDNet",
+		"Teeworlds",
+		"BestClient",
+	};
+
+	for(const char *pUserDirName : s_apUserDirs)
+	{
+		char aUserDir[IO_MAX_PATH_LENGTH];
+		if(fs_storage_path(pUserDirName, aUserDir, sizeof(aUserDir)) != 0)
+			continue;
+
+		str_format(pConfigPath, ConfigPathSize, "%s/%s", aUserDir, gs_pPortableReShadeConfigFilename);
+		if(fs_is_file(pConfigPath))
+			return true;
+	}
+
+	return false;
+}
+
+static bool QueryPortableReShadeConfigEnabled(bool &Enabled)
+{
+	Enabled = true;
+
+	char aConfigPath[IO_MAX_PATH_LENGTH];
+	if(!QueryPortableReShadeConfigPath(aConfigPath, sizeof(aConfigPath)))
+		return false;
+
+	CLineReader LineReader;
+	if(!LineReader.OpenFile(io_open(aConfigPath, IOFLAG_READ)))
+		return false;
+
+	while(const char *pLine = LineReader.Get())
+	{
+		const char *pValue = str_startswith_nocase(pLine, gs_pPortableReShadeEnabledConfigName);
+		if(pValue == nullptr)
+			continue;
+
+		pValue = str_skip_whitespaces_const(pValue);
+		char aValue[16];
+		int ValueLength = 0;
+		while(*pValue != '\0' && !str_isspace(*pValue) && ValueLength < (int)sizeof(aValue) - 1)
+			aValue[ValueLength++] = *pValue++;
+		aValue[ValueLength] = '\0';
+
+		int ParsedValue = 0;
+		if(str_toint(aValue, &ParsedValue))
+			Enabled = ParsedValue != 0;
+		return true;
+	}
+
+	return false;
+}
 
 static void WindowsUseBackslashes(char *pPath)
 {
@@ -256,9 +315,12 @@ static void ConfigurePortableReShadeLayerEnvironmentEarly()
 	if(!HasLayerDll || (!HasLayerManifest && !HasDisabledLayerManifest))
 		return;
 
+	bool ReShadeEnabled = true;
+	QueryPortableReShadeConfigEnabled(ReShadeEnabled);
+
 	EnsurePortableReShadeUserLayerRegistration(aBinaryDir, HasLayerDll, HasLayerManifest, HasDisabledLayerManifest);
 	_putenv_s("VK_IMPLICIT_LAYER_PATH", aBinaryDir);
-	_putenv_s(gs_pPortableReShadeLayerDisableEnv, HasLayerManifest ? "" : "1");
+	_putenv_s(gs_pPortableReShadeLayerDisableEnv, ReShadeEnabled ? "" : "1");
 }
 #endif
 

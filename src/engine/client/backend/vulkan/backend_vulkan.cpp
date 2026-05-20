@@ -11,6 +11,7 @@
 #include <engine/gfx/image_manipulation.h>
 #include <engine/graphics.h>
 #include <engine/shared/config.h>
+#include <engine/shared/linereader.h>
 #include <engine/shared/localization.h>
 #include <engine/storage.h>
 
@@ -52,6 +53,64 @@ static constexpr const char *gs_pPortableReShadeLayerDllFilename = "ReShade64.dl
 static constexpr const char *gs_pPortableReShadeLayerManifestFilename = "ReShade64.json";
 static constexpr const char *gs_pPortableReShadeLayerDisabledManifestFilename = "ReShade64.reshade-disabled.json";
 static constexpr const char *gs_pPortableReShadeLayerDisableEnv = "DISABLE_VK_LAYER_reshade_1";
+static constexpr const char *gs_pPortableReShadeConfigFilename = "settings_BestClient.cfg";
+static constexpr const char *gs_pPortableReShadeEnabledConfigName = "bc_reshade_enabled";
+
+static bool QueryPortableReShadeConfigPath(char *pConfigPath, int ConfigPathSize)
+{
+	static constexpr const char *s_apUserDirs[] = {
+		"DDNet",
+		"Teeworlds",
+		"BestClient",
+	};
+
+	for(const char *pUserDirName : s_apUserDirs)
+	{
+		char aUserDir[IO_MAX_PATH_LENGTH];
+		if(fs_storage_path(pUserDirName, aUserDir, sizeof(aUserDir)) != 0)
+			continue;
+
+		str_format(pConfigPath, ConfigPathSize, "%s/%s", aUserDir, gs_pPortableReShadeConfigFilename);
+		if(fs_is_file(pConfigPath))
+			return true;
+	}
+
+	return false;
+}
+
+static bool QueryPortableReShadeConfigEnabled(bool &Enabled)
+{
+	Enabled = true;
+
+	char aConfigPath[IO_MAX_PATH_LENGTH];
+	if(!QueryPortableReShadeConfigPath(aConfigPath, sizeof(aConfigPath)))
+		return false;
+
+	CLineReader LineReader;
+	if(!LineReader.OpenFile(io_open(aConfigPath, IOFLAG_READ)))
+		return false;
+
+	while(const char *pLine = LineReader.Get())
+	{
+		const char *pValue = str_startswith_nocase(pLine, gs_pPortableReShadeEnabledConfigName);
+		if(pValue == nullptr)
+			continue;
+
+		pValue = str_skip_whitespaces_const(pValue);
+		char aValue[16];
+		int ValueLength = 0;
+		while(*pValue != '\0' && !str_isspace(*pValue) && ValueLength < (int)sizeof(aValue) - 1)
+			aValue[ValueLength++] = *pValue++;
+		aValue[ValueLength] = '\0';
+
+		int ParsedValue = 0;
+		if(str_toint(aValue, &ParsedValue))
+			Enabled = ParsedValue != 0;
+		return true;
+	}
+
+	return false;
+}
 
 static bool QueryPortableReShadeLayerFiles(char *pBinaryDir, int BinaryDirSize, bool &HasLayerDll, bool &HasLayerManifest, bool &HasDisabledLayerManifest)
 {
@@ -83,9 +142,12 @@ static void ConfigurePortableReShadeVulkanLayerEnvironment()
 	if(!HasLayerDll || (!HasLayerManifest && !HasDisabledLayerManifest))
 		return;
 
+	bool ReShadeEnabled = true;
+	QueryPortableReShadeConfigEnabled(ReShadeEnabled);
+
 	_putenv_s("VK_IMPLICIT_LAYER_PATH", aBinaryDir);
-	_putenv_s(gs_pPortableReShadeLayerDisableEnv, HasLayerManifest ? "" : "1");
-	log_info("gfx/vulkan", "Configured portable ReShade Vulkan layer from '%s' (%s).", aBinaryDir, HasLayerManifest ? "enabled" : "disabled");
+	_putenv_s(gs_pPortableReShadeLayerDisableEnv, ReShadeEnabled ? "" : "1");
+	log_info("gfx/vulkan", "Configured portable ReShade Vulkan layer from '%s' (%s).", aBinaryDir, ReShadeEnabled ? "enabled" : "disabled");
 }
 #endif
 

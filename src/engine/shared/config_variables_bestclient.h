@@ -60,6 +60,7 @@ MACRO_CONFIG_INT(BcChatAnimationType, bc_chat_animation_type, 3, 1, 4, CFGFLAG_C
 
 // General visuals
 MACRO_CONFIG_INT(BcSettingsLayout, bc_settings_layout, 1, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Settings layout (0 = new, 1 = old)")
+MACRO_CONFIG_INT(BcReshadeEnabled, bc_reshade_enabled, 1, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Enable loading the bundled ReShade runtime on startup")
 MACRO_CONFIG_INT(BcReshadeAutoAccept, bc_reshade_auto_accept, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Automatically accept newly enabled ReShade effects without the confirmation popup")
 MACRO_CONFIG_INT(BcReshadeShowOnlyEnabled, bc_reshade_show_only_enabled, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Show only enabled shaders in the right-side ReShade list")
 MACRO_CONFIG_INT(BcHideHudInSettings, bc_hide_hud_in_settings, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Hide HUD while settings page is open")
