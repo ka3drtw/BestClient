@@ -1797,7 +1797,10 @@ void CMenus::RenderPopupFullscreen(CUIRect Screen)
 	{
 		BgColor = ColorRGBA(0.45f, 0.08f, 0.08f, 0.88f);
 		pTitle = "ReShade";
-		pExtraText = BCLocalize("This update introduces a new experimental feature called ReShade. It may not work stably on all devices. If you encounter bugs or notice a significant FPS drop, we recommend disabling this feature in the settings.");
+		const bool RussianLanguage = str_endswith_nocase(g_Config.m_ClLanguagefile, "russian.txt") != nullptr;
+		pExtraText = RussianLanguage ?
+			"В этом обновлении появилась новая экспериментальная функция ReShade. Она может работать стабильно не на всех устройствах. Если вы столкнулись с багами или заметили сильное падение fps, рекомендуем отключить эту функцию в настройках." :
+			"This update introduces a new experimental feature called ReShade. It may not work stably on all devices. If you encounter bugs or notice a significant FPS drop, we recommend disabling this feature in the settings.";
 		TopAlign = true;
 	}
 
@@ -2027,10 +2030,11 @@ void CMenus::RenderPopupFullscreen(CUIRect Screen)
 		Ui()->DoLabel(&MessageRect, pExtraText, MessageFontSize, TEXTALIGN_TL, {.m_MaxWidth = MessageRect.w});
 		Ui()->ClipDisable();
 
-		DoButton_CheckBoxAutoVMarginAndSet(&m_BestClientReShadeNoticeDontShowAgain, "Не показывать снова", &m_BestClientReShadeNoticeDontShowAgain, &CheckBoxRow, CheckBoxRow.h);
+		const bool RussianLanguage = str_endswith_nocase(g_Config.m_ClLanguagefile, "russian.txt") != nullptr;
+		DoButton_CheckBoxAutoVMarginAndSet(&m_BestClientReShadeNoticeDontShowAgain, RussianLanguage ? "Не показывать снова" : "Do not show again", &m_BestClientReShadeNoticeDontShowAgain, &CheckBoxRow, CheckBoxRow.h);
 
 		static CButtonContainer s_ButtonConfirm;
-		if(DoButton_Menu(&s_ButtonConfirm, "Хорошо", 0, &ButtonBar) || Ui()->ConsumeHotkey(CUi::HOTKEY_ESCAPE) || Ui()->ConsumeHotkey(CUi::HOTKEY_ENTER))
+		if(DoButton_Menu(&s_ButtonConfirm, RussianLanguage ? "Хорошо" : "OK", 0, &ButtonBar) || Ui()->ConsumeHotkey(CUi::HOTKEY_ESCAPE) || Ui()->ConsumeHotkey(CUi::HOTKEY_ENTER))
 		{
 			g_Config.m_BcReshadeNoticeDoNotShowAgain = m_BestClientReShadeNoticeDontShowAgain ? 1 : 0;
 			ConfigManager()->Save();
