@@ -4234,7 +4234,7 @@ foreach(ext zip tar.gz tar.xz)
   endif()
   add_custom_command(OUTPUT ${CPACK_PACKAGE_FILE_NAME}.${ext}
     COMMAND ${CMAKE_COMMAND} -E rm -f ${PACKAGE_OUTPUT}
-    COMMAND ${CMAKE_COMMAND} -E chdir ${PROJECT_BINARY_DIR} powershell -NoProfile -ExecutionPolicy Bypass -Command "if(Test-Path -LiteralPath '${TMPDIR}') { Remove-Item -LiteralPath '${TMPDIR}' -Recurse -Force -ErrorAction Stop }"
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${TMPDIR}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${TMPDIR}
     ${COPY_FILE_COMMANDS}
     ${COPY_DIR_COMMANDS}
