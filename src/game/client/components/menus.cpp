@@ -1797,7 +1797,7 @@ void CMenus::RenderPopupFullscreen(CUIRect Screen)
 	{
 		BgColor = ColorRGBA(0.45f, 0.08f, 0.08f, 0.88f);
 		pTitle = "ReShade";
-		pExtraText = "В этом обновлении был добавлен ReShade. Если из-за него у вас мало FPS, зайдите в настройки ReShade и отключите его.\n\nReShade was added in this update. If you're getting low FPS because of it, go into the ReShade settings and disable it.";
+		pExtraText = BCLocalize("This update introduces a new experimental feature called ReShade. It may not work stably on all devices. If you encounter bugs or notice a significant FPS drop, we recommend disabling this feature in the settings.");
 		TopAlign = true;
 	}
 
