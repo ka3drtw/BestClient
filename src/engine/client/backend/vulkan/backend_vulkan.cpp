@@ -169,7 +169,20 @@ class CCommandProcessorFragment_Vulkan : public CCommandProcessorFragment_GLBase
 
 	[[nodiscard]] bool IsFrameBlendEnabled()
 	{
-		return g_Config.m_BcMotionBlur != 0 && g_Config.m_BcMotionBlurStrength > 0;
+		if(g_Config.m_BcMotionBlur == 0 || g_Config.m_BcMotionBlurStrength <= 0)
+			return false;
+
+#if defined(CONF_PLATFORM_LINUX)
+		static bool s_FrameBlendUnsupportedWarningShown = false;
+		if(!s_FrameBlendUnsupportedWarningShown)
+		{
+			log_warn("gfx/vulkan", "BestClient motion blur is temporarily disabled on Linux because it can crash the client.");
+			s_FrameBlendUnsupportedWarningShown = true;
+		}
+		return false;
+#else
+		return true;
+#endif
 	}
 
 	static const char *MemoryUsageName(EMemoryBlockUsage MemUsage)
@@ -2384,6 +2397,9 @@ protected:
 
 		vkCmdEndRenderPass(CommandBuffer);
 
+		if(FrameBlendEnabled)
+			CopyFrameToFrameBlendHistory(CommandBuffer);
+
 		if(vkEndCommandBuffer(CommandBuffer) != VK_SUCCESS)
 		{
 			SetError(EGfxErrorType::GFX_ERROR_TYPE_RENDER_RECORDING, "Command buffer cannot be ended anymore.");
@@ -2539,10 +2555,6 @@ protected:
 			SetError(EGfxErrorType::GFX_ERROR_TYPE_RENDER_RECORDING, "Command buffer cannot be filled anymore.");
 			return false;
 		}
-
-		const bool FrameBlendEnabled = IsFrameBlendEnabled();
-		if(FrameBlendEnabled)
-			CopyFrameToFrameBlendHistory(CommandBuffer);
 
 		VkRenderPassBeginInfo RenderPassInfo{};
 		RenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -6230,9 +6242,9 @@ public:
 		}
 		else if(OldLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR && NewLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
 		{
-			Barrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+			Barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT;
 			Barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-			SourceStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+			SourceStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
 			DestinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
 		}
 		else if(OldLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL && NewLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
@@ -6240,7 +6252,7 @@ public:
 			Barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 			Barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
 			SourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			DestinationStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+			DestinationStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
 		}
 		else
 		{
@@ -7379,11 +7391,11 @@ public:
 
 	void CopyFrameToFrameBlendHistory(VkCommandBuffer &CommandBuffer)
 	{
-		if(m_vFrameBlendImages.empty() || m_LastPresentedSwapChainImageIndex == std::numeric_limits<decltype(m_LastPresentedSwapChainImageIndex)>::max())
+		if(m_vFrameBlendImages.empty())
 			return;
 
-		auto &FrameBlendImage = m_vFrameBlendImages[m_LastPresentedSwapChainImageIndex];
-		auto &SwapImage = m_vSwapChainImages[m_LastPresentedSwapChainImageIndex];
+		auto &FrameBlendImage = m_vFrameBlendImages[m_CurImageIndex];
+		auto &SwapImage = m_vSwapChainImages[m_CurImageIndex];
 
 		FrameBlendImageBarrier(CommandBuffer, FrameBlendImage.m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 		FrameBlendImageBarrier(CommandBuffer, SwapImage, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
