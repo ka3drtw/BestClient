@@ -688,7 +688,7 @@ bool CHud::RebuildFinishPredictionPathData()
 	}
 
 	using TDistanceNode = std::pair<int, int>;
-	std::priority_queue<TDistanceNode, std::vector<TDistanceNode>, std::greater<TDistanceNode>> PriorityQueue;
+	std::priority_queue<TDistanceNode, std::vector<TDistanceNode>, std::greater<>> PriorityQueue;
 	for(int y = 0; y < m_FinishPredictionMapHeight; ++y)
 	{
 		for(int x = 0; x < m_FinishPredictionMapWidth; ++x)
@@ -2545,17 +2545,17 @@ void CHud::RenderSpectatorCount(bool ForcePreview)
 		Graphics()->DrawRect(Rect.x, Rect.y, Rect.w, Rect.h, BackgroundColor, Corners, 5.0f * Scale);
 
 	float y = Rect.y + PaddingY;
-	const float x = Rect.x + PaddingX;
+	const float X = Rect.x + PaddingX;
 
 	TextRender()->SetFontPreset(EFontPreset::ICON_FONT);
-	TextRender()->Text(x, y, Fontsize, FontIcon::EYE, -1.0f);
+	TextRender()->Text(X, y, Fontsize, FontIcon::EYE, -1.0f);
 	TextRender()->SetFontPreset(EFontPreset::DEFAULT_FONT);
-	TextRender()->Text(x + Fontsize + 3.0f * Scale, y, Fontsize, State.m_aCountBuf, -1.0f);
+	TextRender()->Text(X + Fontsize + 3.0f * Scale, y, Fontsize, State.m_aCountBuf, -1.0f);
 
 	y += LineHeight;
 	for(int i = 0; i < State.m_NumNameLines; i++)
 	{
-		TextRender()->Text(x, y, Fontsize, State.m_aaNameLines[i], -1.0f);
+		TextRender()->Text(X, y, Fontsize, State.m_aaNameLines[i], -1.0f);
 		y += LineHeight;
 	}
 }
@@ -3497,8 +3497,6 @@ void CHud::RenderKeystrokesKeyboardInternal(bool ForcePreview, bool IgnoreModule
 			const int Candidate = MapY + Element.m_MapH + INPUT_OVERLAY_TEXTURE_SPACE;
 			if(Candidate + Element.m_MapH <= Preset.m_AtlasHeight)
 				MapY = Candidate;
-			else
-				UsePressedAtlas = false;
 		}
 
 		DrawKeystrokesSprite(

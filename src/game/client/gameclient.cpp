@@ -87,8 +87,10 @@
 #include <limits>
 
 #if defined(CONF_FAMILY_WINDOWS)
+// clang-format off
 #include <windows.h>
 #include <tlhelp32.h>
+// clang-format on
 #ifdef ERROR
 #undef ERROR
 #endif

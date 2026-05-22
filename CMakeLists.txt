@@ -4007,7 +4007,7 @@ endif()
 set(CPACK_GEN_FILES
   ${VULKAN_SHADER_FILE_LIST}
 )
-if(TARGET_OS STREQUAL "windows")
+if(TARGET_OS STREQUAL "windows" AND NOT MINGW)
   list(APPEND CPACK_GEN_FILES
     bestclient_reshade_live.addon
     bestclient_reshade_bridge.addon
@@ -4246,7 +4246,7 @@ foreach(ext zip tar.gz tar.xz)
     ${COPY_DIR_COMMANDS}
     ${COPY_TARGET_COMMANDS}
     ${STRIP_TARGET_COMMANDS}
-    COMMAND ${CMAKE_COMMAND} -E chdir pack_${CPACK_PACKAGE_FILE_NAME}_${EXT_SLUG} ${CMAKE_COMMAND} -E tar ${TAR_MODE} ../${CPACK_PACKAGE_FILE_NAME}.${ext} ${TAR_EXTRA_ARGS} -- ${CPACK_PACKAGE_FILE_NAME}/
+    COMMAND ${CMAKE_COMMAND} -E chdir pack_${CPACK_PACKAGE_FILE_NAME}_${EXT_SLUG} ${CMAKE_COMMAND} -E tar ${TAR_MODE} ../${CPACK_PACKAGE_FILE_NAME}.${ext} ${TAR_EXTRA_ARGS} ${CPACK_PACKAGE_FILE_NAME}/
     DEPENDS ${CPACK_TARGETS} ${PACKAGE_EXTRA_DEPENDS}
   )
   add_custom_target(package_${EXT_SLUG} DEPENDS ${CPACK_PACKAGE_FILE_NAME}.${ext})
@@ -4461,7 +4461,7 @@ foreach(target ${TARGETS_DEP})
   endif()
 endforeach()
 
-if(TARGET_OS STREQUAL "windows")
+if(TARGET_OS STREQUAL "windows" AND NOT MINGW)
   add_library(bestclient-reshade-live MODULE
     src/game/client/components/bestclient/reshade_addon.cpp
   )

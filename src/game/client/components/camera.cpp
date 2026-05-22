@@ -513,7 +513,7 @@ void CCamera::OnRender()
 		const float SmoothFreeviewAcceleration = 2.5f;
 		const float FrameTime = Client()->RenderFrameTime();
 		vec2 FreeviewMove = vec2(0.0f, 0.0f);
-		static vec2 SmoothFreeviewVelocity = vec2(0.0f, 0.0f);
+		static vec2 s_SmoothFreeviewVelocity = vec2(0.0f, 0.0f);
 
 		if(Input()->KeyIsPressed(KEY_KP_4))
 			FreeviewMove.x -= 1.0f;
@@ -525,14 +525,14 @@ void CCamera::OnRender()
 			FreeviewMove.y += 1.0f;
 
 		const vec2 TargetVelocity = FreeviewMove * SmoothFreeviewSpeed;
-		SmoothFreeviewVelocity += (TargetVelocity - SmoothFreeviewVelocity) * minimum(FrameTime * SmoothFreeviewAcceleration, 1.0f);
+		s_SmoothFreeviewVelocity += (TargetVelocity - s_SmoothFreeviewVelocity) * minimum(FrameTime * SmoothFreeviewAcceleration, 1.0f);
 
-		if(absolute(SmoothFreeviewVelocity.x) < 0.1f && absolute(SmoothFreeviewVelocity.y) < 0.1f)
-			SmoothFreeviewVelocity = vec2(0.0f, 0.0f);
+		if(absolute(s_SmoothFreeviewVelocity.x) < 0.1f && absolute(s_SmoothFreeviewVelocity.y) < 0.1f)
+			s_SmoothFreeviewVelocity = vec2(0.0f, 0.0f);
 
-		if(SmoothFreeviewVelocity.x != 0.0f || SmoothFreeviewVelocity.y != 0.0f)
+		if(s_SmoothFreeviewVelocity.x != 0.0f || s_SmoothFreeviewVelocity.y != 0.0f)
 		{
-			m_ForceFreeviewPos = m_Center + SmoothFreeviewVelocity * FrameTime;
+			m_ForceFreeviewPos = m_Center + s_SmoothFreeviewVelocity * FrameTime;
 			m_ForceFreeview = true;
 		}
 	}
