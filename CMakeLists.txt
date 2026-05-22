@@ -4191,7 +4191,7 @@ if(CLIENT AND DMGBUILD_FOUND)
 endif()
 
 foreach(ext zip tar.gz tar.xz)
-  set(TAR_MODE c)
+  set(TAR_MODE cf)
   set(TAR_EXTRA_ARGS)
   string(REPLACE . _ EXT_SLUG ${ext})
 
@@ -4234,9 +4234,9 @@ foreach(ext zip tar.gz tar.xz)
   if(ext STREQUAL zip)
     set(TAR_EXTRA_ARGS --format=zip)
   elseif(ext STREQUAL tar.gz)
-    set(TAR_MODE cz)
+    set(TAR_MODE cfz)
   elseif(ext STREQUAL tar.xz)
-    set(TAR_MODE cJ)
+    set(TAR_MODE cfJ)
   endif()
   add_custom_command(OUTPUT ${CPACK_PACKAGE_FILE_NAME}.${ext}
     COMMAND ${CMAKE_COMMAND} -E rm -f ${PACKAGE_OUTPUT}

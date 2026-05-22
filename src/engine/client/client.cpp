@@ -277,7 +277,7 @@ static void EnsurePortableReShadeUserLayerRegistration(const char *pBinaryDir, b
 	const LRESULT OpenResult = RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\Khronos\\Vulkan\\ImplicitLayers", 0, nullptr, 0, KEY_ALL_ACCESS, nullptr, &LayerKey, nullptr);
 	if(OpenResult != ERROR_SUCCESS)
 	{
-		log_error("reshade", "Failed to open Vulkan implicit layers registry key (%ld '%s').", OpenResult, windows_format_system_message(OpenResult).c_str());
+		log_error("reshade", "Failed to open Vulkan implicit layers registry key (%" PRId64 " '%s').", static_cast<int64_t>(OpenResult), windows_format_system_message(OpenResult).c_str());
 		return;
 	}
 
@@ -287,7 +287,7 @@ static void EnsurePortableReShadeUserLayerRegistration(const char *pBinaryDir, b
 	RegCloseKey(LayerKey);
 	if(SetResult != ERROR_SUCCESS)
 	{
-		log_error("reshade", "Failed to register portable ReShade Vulkan layer '%s' (%ld '%s').", aTargetManifestPath, SetResult, windows_format_system_message(SetResult).c_str());
+		log_error("reshade", "Failed to register portable ReShade Vulkan layer '%s' (%" PRId64 " '%s').", aTargetManifestPath, static_cast<int64_t>(SetResult), windows_format_system_message(SetResult).c_str());
 		return;
 	}
 
