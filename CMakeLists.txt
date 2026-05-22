@@ -2823,6 +2823,8 @@ if(CLIENT)
     components/bestclient/r_jelly.h
     components/bestclient/r_trail.cpp
     components/bestclient/r_trail.h
+    components/bestclient/reshade_addon.cpp
+    components/bestclient/reshade_bridge_addon.cpp
     components/bestclient/reshade_runtime.cpp
     components/bestclient/reshade_runtime.h
     components/bestclient/subsystem_runtime.h
@@ -3141,6 +3143,10 @@ if(CLIENT)
     src/generated/client_data7.h
   )
   list(REMOVE_ITEM GAME_CLIENT "${PROJECT_SOURCE_DIR}/src/game/client/components/bestclient/voice/server.cpp")
+  list(REMOVE_ITEM GAME_CLIENT
+    "${PROJECT_SOURCE_DIR}/src/game/client/components/bestclient/reshade_addon.cpp"
+    "${PROJECT_SOURCE_DIR}/src/game/client/components/bestclient/reshade_bridge_addon.cpp"
+  )
   if(NOT TARGET_OS STREQUAL "windows")
     list(REMOVE_ITEM GAME_CLIENT
       "${PROJECT_SOURCE_DIR}/src/game/client/components/bestclient/reshade_runtime.cpp"

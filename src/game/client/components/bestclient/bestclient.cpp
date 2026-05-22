@@ -8,8 +8,8 @@
 #include <base/system.h>
 
 #include <engine/client.h>
-#include <engine/demo.h>
 #include <engine/client/enums.h>
+#include <engine/demo.h>
 #include <engine/shared/config.h>
 #include <engine/shared/json.h>
 #include <engine/storage.h>
@@ -871,7 +871,7 @@ void CBestClient::UpdateHookCombo()
 		NewPlayerHook = HookedPlayer >= 0 && (m_HookComboLastHookedPlayer < 0 || HookedPlayer != m_HookComboLastHookedPlayer);
 		m_HookComboLastHookedPlayer = HookedPlayer;
 		NewHammerAttack = TrackedCharacter.m_Cur.m_AttackTick != TrackedCharacter.m_Prev.m_AttackTick &&
-			(TrackedCharacter.m_Cur.m_Weapon == WEAPON_HAMMER || TrackedCharacter.m_Prev.m_Weapon == WEAPON_HAMMER);
+				  (TrackedCharacter.m_Cur.m_Weapon == WEAPON_HAMMER || TrackedCharacter.m_Prev.m_Weapon == WEAPON_HAMMER);
 	}
 	else
 	{

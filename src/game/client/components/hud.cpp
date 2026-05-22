@@ -3480,16 +3480,16 @@ void CHud::RenderKeystrokesKeyboardInternal(bool ForcePreview, bool IgnoreModule
 	const int TrackedClientId = ForcePreview ? -1 : GetKeystrokesTrackedClientId();
 	const CNetObj_PlayerInput *pTrackedInput = ForcePreview ? nullptr : GetKeystrokesTrackedInput();
 	const CNetObj_Character *pTrackedCharacter = TrackedClientId >= 0 && GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Active ?
-		&GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Cur :
-		nullptr;
+							     &GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Cur :
+							     nullptr;
 	for(int i = 0; i < Preset.m_NumElements; ++i)
 	{
 		const auto &Element = Preset.m_pElements[i];
 		const bool Active = !ForcePreview && (pTrackedCharacter != nullptr ?
-			(pTrackedInput != nullptr ?
-				IsKeystrokesPressed(pTrackedInput, Element.m_KeyPrimary, Element.m_KeySecondary) :
-				IsKeystrokesPressed(pTrackedCharacter, Element.m_KeyPrimary, Element.m_KeySecondary)) :
-			IsKeystrokesPressed(Input(), Element.m_KeyPrimary, Element.m_KeySecondary));
+								     (pTrackedInput != nullptr ?
+										     IsKeystrokesPressed(pTrackedInput, Element.m_KeyPrimary, Element.m_KeySecondary) :
+										     IsKeystrokesPressed(pTrackedCharacter, Element.m_KeyPrimary, Element.m_KeySecondary)) :
+								     IsKeystrokesPressed(Input(), Element.m_KeyPrimary, Element.m_KeySecondary));
 		int MapY = Element.m_MapY;
 		bool UsePressedAtlas = Active && Preset.m_PressedOffsetY > 0;
 		if(UsePressedAtlas)
@@ -3568,11 +3568,11 @@ void CHud::RenderKeystrokesMouseInternal(bool ForcePreview, bool IgnoreModuleEna
 	const bool HasTrackedPlayer = TrackedClientId >= 0;
 	const CNetObj_PlayerInput *pTrackedInput = ForcePreview ? nullptr : GetKeystrokesTrackedInput();
 	const CNetObj_Character *pTrackedCharacter = HasTrackedPlayer && GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Active ?
-		&GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Cur :
-		nullptr;
+							     &GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Cur :
+							     nullptr;
 	const CNetObj_Character *pPrevTrackedCharacter = HasTrackedPlayer && GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Active ?
-		&GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Prev :
-		nullptr;
+								 &GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Prev :
+								 nullptr;
 	if(!ForcePreview)
 	{
 		if(!HasTrackedPlayer && pTrackedInput == nullptr && Input()->KeyPress(KEY_MOUSE_WHEEL_UP))
@@ -3623,17 +3623,17 @@ void CHud::RenderKeystrokesMouseInternal(bool ForcePreview, bool IgnoreModuleEna
 			break;
 		case EKeystrokesInputKind::KEY:
 			Active = !ForcePreview && (HasTrackedPlayer ?
-				(pTrackedInput != nullptr ?
-				IsKeystrokesPressed(pTrackedInput, Element.m_KeyPrimary, Element.m_KeySecondary) :
-				false) :
-				IsKeystrokesPressed(Input(), Element.m_KeyPrimary, Element.m_KeySecondary));
+								  (pTrackedInput != nullptr ?
+										  IsKeystrokesPressed(pTrackedInput, Element.m_KeyPrimary, Element.m_KeySecondary) :
+										  false) :
+								  IsKeystrokesPressed(Input(), Element.m_KeyPrimary, Element.m_KeySecondary));
 			break;
 		case EKeystrokesInputKind::MOUSE_BUTTON:
 			Active = !ForcePreview && (HasTrackedPlayer ?
-				(pTrackedInput != nullptr ?
-					IsKeystrokesMouseButtonPressed(pTrackedInput, Element.m_MouseButton) :
-					IsKeystrokesMouseButtonPressedFromCharacter(pPrevTrackedCharacter, pTrackedCharacter, Element.m_MouseButton, Now, m_KeystrokesMouse1EndTime)) :
-				IsKeystrokesMouseButtonPressed(Input(), Element.m_MouseButton));
+								  (pTrackedInput != nullptr ?
+										  IsKeystrokesMouseButtonPressed(pTrackedInput, Element.m_MouseButton) :
+										  IsKeystrokesMouseButtonPressedFromCharacter(pPrevTrackedCharacter, pTrackedCharacter, Element.m_MouseButton, Now, m_KeystrokesMouse1EndTime)) :
+								  IsKeystrokesMouseButtonPressed(Input(), Element.m_MouseButton));
 			break;
 		case EKeystrokesInputKind::WHEEL:
 			Active = !ForcePreview && IsKeystrokesWheelActive(Element.m_WheelDir, Now, m_KeystrokesWheelUpEndTime, m_KeystrokesWheelDownEndTime);

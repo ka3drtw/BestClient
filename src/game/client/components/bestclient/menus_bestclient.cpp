@@ -40,7 +40,6 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
-#include <array>
 #include <filesystem>
 #include <memory>
 #include <numeric>

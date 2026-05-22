@@ -64,8 +64,8 @@ bool CAfterimage::CanSampleAfterimage(int &LocalClientId) const
 
 	const auto &LocalPlayer = GameClient()->m_aClients[LocalClientId];
 	return LocalPlayer.m_Active &&
-		GameClient()->m_Snap.m_aCharacters[LocalClientId].m_Active &&
-		LocalPlayer.m_Team != TEAM_SPECTATORS;
+	       GameClient()->m_Snap.m_aCharacters[LocalClientId].m_Active &&
+	       LocalPlayer.m_Team != TEAM_SPECTATORS;
 }
 
 void CAfterimage::RenderAfterimageWeapon(const SGhostSample &Sample, float Alpha)

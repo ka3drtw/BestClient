@@ -1799,8 +1799,8 @@ void CMenus::RenderPopupFullscreen(CUIRect Screen)
 		pTitle = "ReShade";
 		const bool RussianLanguage = str_endswith_nocase(g_Config.m_ClLanguagefile, "russian.txt") != nullptr;
 		pExtraText = RussianLanguage ?
-			"В этом обновлении появилась новая экспериментальная функция ReShade. Она может работать стабильно не на всех устройствах. Если вы столкнулись с багами или заметили сильное падение fps, рекомендуем отключить эту функцию в настройках." :
-			"This update introduces a new experimental feature called ReShade. It may not work stably on all devices. If you encounter bugs or notice a significant FPS drop, we recommend disabling this feature in the settings.";
+				     "В этом обновлении появилась новая экспериментальная функция ReShade. Она может работать стабильно не на всех устройствах. Если вы столкнулись с багами или заметили сильное падение fps, рекомендуем отключить эту функцию в настройках." :
+				     "This update introduces a new experimental feature called ReShade. It may not work stably on all devices. If you encounter bugs or notice a significant FPS drop, we recommend disabling this feature in the settings.";
 		TopAlign = true;
 	}
 

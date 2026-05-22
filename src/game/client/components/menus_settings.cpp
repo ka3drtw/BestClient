@@ -42,7 +42,6 @@
 
 using namespace std::chrono_literals;
 
-
 void CMenus::RenderSettingsGeneral(CUIRect MainView)
 {
 	char aBuf[128 + IO_MAX_PATH_LENGTH];
@@ -3413,7 +3412,6 @@ void CMenus::RenderSettingsDDNet(CUIRect MainView)
 	}
 #endif
 }
-
 
 CUi::EPopupMenuFunctionResult CMenus::PopupMapPicker(void *pContext, CUIRect View, bool Active)
 {

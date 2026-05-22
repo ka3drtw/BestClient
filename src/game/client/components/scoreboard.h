@@ -3,9 +3,9 @@
 #ifndef GAME_CLIENT_COMPONENTS_SCOREBOARD_H
 #define GAME_CLIENT_COMPONENTS_SCOREBOARD_H
 
-#include <engine/shared/http.h>
 #include <engine/console.h>
 #include <engine/graphics.h>
+#include <engine/shared/http.h>
 
 #include <game/client/component.h>
 #include <game/client/ui.h>

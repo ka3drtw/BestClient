@@ -9,17 +9,16 @@
 #include <engine/demo.h>
 #include <engine/font_icons.h>
 #include <engine/graphics.h>
-#include <engine/shared/json.h>
+#include <engine/serverbrowser.h>
 #include <engine/shared/config.h>
 #include <engine/shared/http.h>
-#include <engine/serverbrowser.h>
+#include <engine/shared/json.h>
 #include <engine/textrender.h>
 
-#include <generated/client_data7.h>
 #include <generated/client_data.h>
+#include <generated/client_data7.h>
 #include <generated/protocol.h>
 
-#include <game/version.h>
 #include <game/client/animstate.h>
 #include <game/client/components/countryflags.h>
 #include <game/client/components/motd.h>
@@ -27,6 +26,7 @@
 #include <game/client/gameclient.h>
 #include <game/client/ui.h>
 #include <game/localization.h>
+#include <game/version.h>
 
 #include <algorithm>
 #include <cctype>
@@ -35,163 +35,163 @@
 
 namespace
 {
-constexpr int MAX_TAB_PLAYER_POINTS_REQUESTS = 4;
-constexpr int64_t TAB_PLAYER_POINTS_RETRY_SECONDS = 30;
-constexpr const char *TAB_PLAYER_POINTS_URL = "https://ddnet.org/players/?json2=";
+	constexpr int MAX_TAB_PLAYER_POINTS_REQUESTS = 4;
+	constexpr int64_t TAB_PLAYER_POINTS_RETRY_SECONDS = 30;
+	constexpr const char *TAB_PLAYER_POINTS_URL = "https://ddnet.org/players/?json2=";
 
-bool IsDdnetCommunityServer(IClient *pClient)
-{
-	CServerInfo ServerInfo;
-	pClient->GetServerInfo(&ServerInfo);
-	return str_comp(ServerInfo.m_aCommunityId, IServerBrowser::COMMUNITY_DDNET) == 0;
-}
-
-void RenderBestClientIcon(IGraphics *pGraphics, const CUIRect &Rect, bool Developer = false)
-{
-	pGraphics->TextureSet(g_pData->m_aImages[Developer ? IMAGE_BCDEVICON : IMAGE_BCICON].m_Id);
-	pGraphics->QuadsBegin();
-	pGraphics->SetColor(1.0f, 1.0f, 1.0f, 1.0f);
-	pGraphics->QuadsSetSubset(0.0f, 0.0f, 1.0f, 1.0f);
-	const IGraphics::CQuadItem Quad(Rect.x, Rect.y, Rect.w, Rect.h);
-	pGraphics->QuadsDrawTL(&Quad, 1);
-	pGraphics->QuadsEnd();
-}
-
-float ScoreTextWidthForRenderTime(ITextRender *pTextRender, float FontSize, int Seconds, bool NotFinished, int Millis, bool TrueMilliseconds)
-{
-	if(NotFinished)
-		return 0.0f;
-
-	char aBuf[128];
-	str_time(((int64_t)absolute(Seconds)) * 100, ETimeFormat::HOURS, aBuf, sizeof(aBuf));
-
-	STextSizeProperties TextSizeProps{};
-	const float SecondsWidth = pTextRender->TextWidth(FontSize, aBuf, -1, -1.0f, 0, TextSizeProps);
-
-	// Mirror CUi::RenderTime width behavior when milliseconds are shown in smaller font.
-	if(Millis >= 0 && Seconds < 60 * 60)
+	bool IsDdnetCommunityServer(IClient *pClient)
 	{
-		const float CentisecondFontSize = FontSize * 0.61803398875f;
-		char aMillis[4];
-		Millis %= 1000;
-		if(!TrueMilliseconds)
-			str_format(aMillis, sizeof(aMillis), "%02d", (int)std::round(Millis / 10));
-		else
-			str_format(aMillis, sizeof(aMillis), "%03d", Millis);
-
-		const float MillisWidth = pTextRender->TextWidth(CentisecondFontSize, aMillis, -1, -1.0f, 0, TextSizeProps);
-		const float Tightening = TrueMilliseconds ? MillisWidth / (3.0f * 6.0f) : MillisWidth / (2.0f * 6.0f);
-		return SecondsWidth + MillisWidth - Tightening;
+		CServerInfo ServerInfo;
+		pClient->GetServerInfo(&ServerInfo);
+		return str_comp(ServerInfo.m_aCommunityId, IServerBrowser::COMMUNITY_DDNET) == 0;
 	}
 
-	return SecondsWidth;
-}
-
-std::string NormalizeVoiceNameKey(const char *pName)
-{
-	if(!pName)
-		return {};
-
-	const char *pBegin = pName;
-	const char *pEnd = pName + str_length(pName);
-	while(pBegin < pEnd && std::isspace((unsigned char)*pBegin))
-		++pBegin;
-	while(pEnd > pBegin && std::isspace((unsigned char)pEnd[-1]))
-		--pEnd;
-
-	std::string Key;
-	Key.reserve((size_t)(pEnd - pBegin));
-	for(const char *p = pBegin; p < pEnd; ++p)
-		Key.push_back((char)std::tolower((unsigned char)*p));
-	return Key;
-}
-
-bool IsVoiceNameMutedByConfig(const char *pName)
-{
-	const std::string Key = NormalizeVoiceNameKey(pName);
-	if(Key.empty())
-		return false;
-
-	const char *p = g_Config.m_BcVoiceChatMutedNames;
-	while(*p)
+	void RenderBestClientIcon(IGraphics *pGraphics, const CUIRect &Rect, bool Developer = false)
 	{
-		while(*p == ',' || std::isspace((unsigned char)*p))
-			++p;
-		if(*p == '\0')
-			break;
-
-		const char *pStart = p;
-		while(*p && *p != ',')
-			++p;
-		const char *pEnd = p;
-		while(pEnd > pStart && std::isspace((unsigned char)pEnd[-1]))
-			--pEnd;
-
-		char aName[128];
-		str_truncate(aName, sizeof(aName), pStart, (int)(pEnd - pStart));
-		if(NormalizeVoiceNameKey(aName) == Key)
-			return true;
+		pGraphics->TextureSet(g_pData->m_aImages[Developer ? IMAGE_BCDEVICON : IMAGE_BCICON].m_Id);
+		pGraphics->QuadsBegin();
+		pGraphics->SetColor(1.0f, 1.0f, 1.0f, 1.0f);
+		pGraphics->QuadsSetSubset(0.0f, 0.0f, 1.0f, 1.0f);
+		const IGraphics::CQuadItem Quad(Rect.x, Rect.y, Rect.w, Rect.h);
+		pGraphics->QuadsDrawTL(&Quad, 1);
+		pGraphics->QuadsEnd();
 	}
 
-	return false;
-}
-
-int GetVoiceNameVolumePercentByConfig(const char *pName)
-{
-	const std::string Key = NormalizeVoiceNameKey(pName);
-	if(Key.empty())
-		return 100;
-
-	int Volume = 100;
-	const char *p = g_Config.m_BcVoiceChatNameVolumes;
-	while(*p)
+	float ScoreTextWidthForRenderTime(ITextRender *pTextRender, float FontSize, int Seconds, bool NotFinished, int Millis, bool TrueMilliseconds)
 	{
-		while(*p == ',' || std::isspace((unsigned char)*p))
-			++p;
-		if(*p == '\0')
-			break;
+		if(NotFinished)
+			return 0.0f;
 
-		const char *pStart = p;
-		while(*p && *p != ',')
-			++p;
-		const char *pEnd = p;
-		while(pEnd > pStart && std::isspace((unsigned char)pEnd[-1]))
-			--pEnd;
-		if(pEnd <= pStart)
-			continue;
+		char aBuf[128];
+		str_time(((int64_t)absolute(Seconds)) * 100, ETimeFormat::HOURS, aBuf, sizeof(aBuf));
 
-		const char *pSep = nullptr;
-		for(const char *q = pStart; q < pEnd; ++q)
+		STextSizeProperties TextSizeProps{};
+		const float SecondsWidth = pTextRender->TextWidth(FontSize, aBuf, -1, -1.0f, 0, TextSizeProps);
+
+		// Mirror CUi::RenderTime width behavior when milliseconds are shown in smaller font.
+		if(Millis >= 0 && Seconds < 60 * 60)
 		{
-			if(*q == '=' || *q == ':')
-			{
-				pSep = q;
-				break;
-			}
+			const float CentisecondFontSize = FontSize * 0.61803398875f;
+			char aMillis[4];
+			Millis %= 1000;
+			if(!TrueMilliseconds)
+				str_format(aMillis, sizeof(aMillis), "%02d", (int)std::round(Millis / 10));
+			else
+				str_format(aMillis, sizeof(aMillis), "%03d", Millis);
+
+			const float MillisWidth = pTextRender->TextWidth(CentisecondFontSize, aMillis, -1, -1.0f, 0, TextSizeProps);
+			const float Tightening = TrueMilliseconds ? MillisWidth / (3.0f * 6.0f) : MillisWidth / (2.0f * 6.0f);
+			return SecondsWidth + MillisWidth - Tightening;
 		}
-		if(!pSep)
-			continue;
 
-		const char *pNameEnd = pSep;
-		while(pNameEnd > pStart && std::isspace((unsigned char)pNameEnd[-1]))
-			--pNameEnd;
-		const char *pValueStart = pSep + 1;
-		while(pValueStart < pEnd && std::isspace((unsigned char)*pValueStart))
-			++pValueStart;
-		if(pNameEnd <= pStart || pValueStart >= pEnd)
-			continue;
-
-		char aName[128];
-		char aValue[16];
-		str_truncate(aName, sizeof(aName), pStart, (int)(pNameEnd - pStart));
-		if(NormalizeVoiceNameKey(aName) != Key)
-			continue;
-		str_truncate(aValue, sizeof(aValue), pValueStart, (int)(pEnd - pValueStart));
-		Volume = std::clamp(str_toint(aValue), 0, 100);
+		return SecondsWidth;
 	}
 
-	return std::clamp(Volume, 1, 100);
-}
+	std::string NormalizeVoiceNameKey(const char *pName)
+	{
+		if(!pName)
+			return {};
+
+		const char *pBegin = pName;
+		const char *pEnd = pName + str_length(pName);
+		while(pBegin < pEnd && std::isspace((unsigned char)*pBegin))
+			++pBegin;
+		while(pEnd > pBegin && std::isspace((unsigned char)pEnd[-1]))
+			--pEnd;
+
+		std::string Key;
+		Key.reserve((size_t)(pEnd - pBegin));
+		for(const char *p = pBegin; p < pEnd; ++p)
+			Key.push_back((char)std::tolower((unsigned char)*p));
+		return Key;
+	}
+
+	bool IsVoiceNameMutedByConfig(const char *pName)
+	{
+		const std::string Key = NormalizeVoiceNameKey(pName);
+		if(Key.empty())
+			return false;
+
+		const char *p = g_Config.m_BcVoiceChatMutedNames;
+		while(*p)
+		{
+			while(*p == ',' || std::isspace((unsigned char)*p))
+				++p;
+			if(*p == '\0')
+				break;
+
+			const char *pStart = p;
+			while(*p && *p != ',')
+				++p;
+			const char *pEnd = p;
+			while(pEnd > pStart && std::isspace((unsigned char)pEnd[-1]))
+				--pEnd;
+
+			char aName[128];
+			str_truncate(aName, sizeof(aName), pStart, (int)(pEnd - pStart));
+			if(NormalizeVoiceNameKey(aName) == Key)
+				return true;
+		}
+
+		return false;
+	}
+
+	int GetVoiceNameVolumePercentByConfig(const char *pName)
+	{
+		const std::string Key = NormalizeVoiceNameKey(pName);
+		if(Key.empty())
+			return 100;
+
+		int Volume = 100;
+		const char *p = g_Config.m_BcVoiceChatNameVolumes;
+		while(*p)
+		{
+			while(*p == ',' || std::isspace((unsigned char)*p))
+				++p;
+			if(*p == '\0')
+				break;
+
+			const char *pStart = p;
+			while(*p && *p != ',')
+				++p;
+			const char *pEnd = p;
+			while(pEnd > pStart && std::isspace((unsigned char)pEnd[-1]))
+				--pEnd;
+			if(pEnd <= pStart)
+				continue;
+
+			const char *pSep = nullptr;
+			for(const char *q = pStart; q < pEnd; ++q)
+			{
+				if(*q == '=' || *q == ':')
+				{
+					pSep = q;
+					break;
+				}
+			}
+			if(!pSep)
+				continue;
+
+			const char *pNameEnd = pSep;
+			while(pNameEnd > pStart && std::isspace((unsigned char)pNameEnd[-1]))
+				--pNameEnd;
+			const char *pValueStart = pSep + 1;
+			while(pValueStart < pEnd && std::isspace((unsigned char)*pValueStart))
+				++pValueStart;
+			if(pNameEnd <= pStart || pValueStart >= pEnd)
+				continue;
+
+			char aName[128];
+			char aValue[16];
+			str_truncate(aName, sizeof(aName), pStart, (int)(pNameEnd - pStart));
+			if(NormalizeVoiceNameKey(aName) != Key)
+				continue;
+			str_truncate(aValue, sizeof(aValue), pValueStart, (int)(pEnd - pValueStart));
+			Volume = std::clamp(str_toint(aValue), 0, 100);
+		}
+
+		return std::clamp(Volume, 1, 100);
+	}
 
 }
 
@@ -1703,7 +1703,7 @@ CUi::EPopupMenuFunctionResult CScoreboard::CScoreboardPopupContext::Render(void 
 			CServerInfo ServerInfo;
 			pScoreboard->Client()->GetServerInfo(&ServerInfo);
 			const int Community = str_comp(ServerInfo.m_aCommunityId, "kog") == 0 ? 1 :
-						      (str_comp(ServerInfo.m_aCommunityId, "unique") == 0 ? 2 : 0);
+												(str_comp(ServerInfo.m_aCommunityId, "unique") == 0 ? 2 : 0);
 
 			char aCommunityLink[512];
 			char aEncodedName[256];
@@ -1836,7 +1836,7 @@ CUi::EPopupMenuFunctionResult CScoreboard::CScoreboardPopupContext::Render(void 
 		Container.VSplitLeft(ActionSize, &Action, &Container);
 		const bool IsInTeam = IsWarGroupMatch(2);
 		ColorRGBA TeamActionColor = IsInTeam ? ColorRGBA(0.32f, 0.92f, 0.42f, 0.85f * pUi->ButtonColorMul(&pPopupContext->m_WarListTeamButton)) :
-						      ColorRGBA(1.0f, 1.0f, 1.0f, 0.5f * pUi->ButtonColorMul(&pPopupContext->m_WarListTeamButton));
+						       ColorRGBA(1.0f, 1.0f, 1.0f, 0.5f * pUi->ButtonColorMul(&pPopupContext->m_WarListTeamButton));
 		if(pUi->DoButton_FontIcon(&pPopupContext->m_WarListTeamButton, FontIcon::ICON_USERS, IsInTeam, &Action, BUTTONFLAG_LEFT, ActionCorners, true, TeamActionColor))
 			ToggleWarGroup(2);
 		pScoreboard->GameClient()->m_Tooltips.DoToolTip(&pPopupContext->m_WarListTeamButton, &Action, IsInTeam ? Localize("Remove from teammate") : Localize("Add to teammate"));
@@ -1845,7 +1845,7 @@ CUi::EPopupMenuFunctionResult CScoreboard::CScoreboardPopupContext::Render(void 
 		Container.VSplitLeft(ActionSize, &Action, &Container);
 		const bool IsInHelper = IsWarGroupMatch(3);
 		ColorRGBA HelperActionColor = IsInHelper ? ColorRGBA(0.45f, 0.72f, 1.0f, 0.85f * pUi->ButtonColorMul(&pPopupContext->m_WarListHelperButton)) :
-							ColorRGBA(1.0f, 1.0f, 1.0f, 0.5f * pUi->ButtonColorMul(&pPopupContext->m_WarListHelperButton));
+							   ColorRGBA(1.0f, 1.0f, 1.0f, 0.5f * pUi->ButtonColorMul(&pPopupContext->m_WarListHelperButton));
 		if(pUi->DoButton_FontIcon(&pPopupContext->m_WarListHelperButton, FontIcon::STAR, IsInHelper, &Action, BUTTONFLAG_LEFT, ActionCorners, true, HelperActionColor))
 			ToggleWarGroup(3);
 		pScoreboard->GameClient()->m_Tooltips.DoToolTip(&pPopupContext->m_WarListHelperButton, &Action, IsInHelper ? Localize("Remove from helper") : Localize("Add to helper"));

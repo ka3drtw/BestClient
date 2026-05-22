@@ -383,9 +383,9 @@ void CCamera::UpdateCamera()
 	}
 
 	const bool DynamicFovActive = g_Config.m_BcDynamicFov &&
-		!GameClient()->m_BestClient.IsComponentDisabled(CBestClient::COMPONENT_VISUALS_DYNAMIC_FOV) &&
-		!IsBlockedCameraServer &&
-		(!GameClient()->m_Snap.m_SpecInfo.m_Active || (IsDemoPlayback && pDemoTrackedCharacter != nullptr));
+				      !GameClient()->m_BestClient.IsComponentDisabled(CBestClient::COMPONENT_VISUALS_DYNAMIC_FOV) &&
+				      !IsBlockedCameraServer &&
+				      (!GameClient()->m_Snap.m_SpecInfo.m_Active || (IsDemoPlayback && pDemoTrackedCharacter != nullptr));
 	m_DynamicFovTarget = 1.0f;
 	if(DynamicFovActive)
 	{

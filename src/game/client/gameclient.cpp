@@ -4,6 +4,8 @@
 #include "gameclient.h"
 
 #include "components/background.h"
+#include "components/bestclient/r_jelly.h"
+#include "components/bestclient/r_trail.h"
 #include "components/binds.h"
 #include "components/broadcast.h"
 #include "components/camera.h"
@@ -42,8 +44,6 @@
 #include "prediction/entities/projectile.h"
 #include "race.h"
 #include "render.h"
-#include "components/bestclient/r_jelly.h"
-#include "components/bestclient/r_trail.h"
 
 #include <base/log.h>
 #include <base/math.h>
@@ -80,8 +80,8 @@
 #include <game/mapitems.h>
 #include <game/version.h>
 
-#include <chrono>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cwchar>
 #include <limits>
@@ -98,181 +98,180 @@ using namespace std::chrono_literals;
 
 namespace
 {
-int64_t DemoRenderTimeNow()
-{
+	int64_t DemoRenderTimeNow()
+	{
 #if defined(CONF_VIDEORECORDER)
-	if(IVideo::Current())
-		return IVideo::Time();
+		if(IVideo::Current())
+			return IVideo::Time();
 #endif
-	return time_get();
-}
-
-bool IsGameplayInputComponentDisabled()
-{
-	return CBestClient::IsComponentDisabledByMask((int)CBestClient::COMPONENT_GAMEPLAY_INPUT,
-		g_Config.m_BcDisabledComponentsMaskLo, g_Config.m_BcDisabledComponentsMaskHi);
-}
-
-float EffectiveFastInputOffsetTicksFastMode()
-{
-
-	if(!g_Config.m_TcFastInput ||
-		BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) != 0 ||
-		IsGameplayInputComponentDisabled())
-		return 0.0f;
-
-	// Mode 0: bestclient fast input (ms based, 20ms per tick)
-	if(g_Config.m_TcFastInputAmount <= 0)
-		return 0.0f;
-	return g_Config.m_TcFastInputAmount / 20.0f;
-}
-
-float EffectiveFastInputOffsetTicksBestMode(const CGameClient *pGameClient)
-{
-	// Mode 3: best input (tick based, stored in 0.01 ticks, with smoothing and latency compensation)
-	if(!g_Config.m_TcFastInput ||
-		BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) != 3 ||
-		IsGameplayInputComponentDisabled())
-		return 0.0f;
-
-	const CGameClient::SBestInputSettings Settings = pGameClient->BestInputSettings();
-	if(Settings.m_Offset <= 0)
-		return 0.0f;
-
-	// Base offset in ticks
-	float Offset = Settings.m_Offset / 100.0f;
-
-	// Apply smoothing (reduces jitter)
-	if(Settings.m_Smoothing > 0)
-	{
-		// Smoothing reduces the effective offset slightly
-		float SmoothFactor = 1.0f - (Settings.m_Smoothing / 200.0f);
-		Offset *= SmoothFactor;
+		return time_get();
 	}
 
-	// Apply latency compensation (increases offset based on ping)
-	if(Settings.m_LatencyComp > 0)
+	bool IsGameplayInputComponentDisabled()
 	{
-		float CompFactor = 1.0f + (Settings.m_LatencyComp / 100.0f);
-		Offset *= CompFactor;
+		return CBestClient::IsComponentDisabledByMask((int)CBestClient::COMPONENT_GAMEPLAY_INPUT,
+			g_Config.m_BcDisabledComponentsMaskLo, g_Config.m_BcDisabledComponentsMaskHi);
 	}
 
-	return Offset;
-}
+	float EffectiveFastInputOffsetTicksFastMode()
+	{
+		if(!g_Config.m_TcFastInput ||
+			BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) != 0 ||
+			IsGameplayInputComponentDisabled())
+			return 0.0f;
 
-float EffectiveFastInputOffsetTicksSaikoPlusMode()
-{
-	if(!g_Config.m_TcFastInput ||
-		BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) != 4 ||
-		IsGameplayInputComponentDisabled())
-		return 0.0f;
-	if(g_Config.m_BcSaikoPlusAmount <= 0)
-		return 0.0f;
-	return g_Config.m_BcSaikoPlusAmount / 100.0f;
-}
+		// Mode 0: bestclient fast input (ms based, 20ms per tick)
+		if(g_Config.m_TcFastInputAmount <= 0)
+			return 0.0f;
+		return g_Config.m_TcFastInputAmount / 20.0f;
+	}
 
-float EffectiveFastInputOffsetTicks(const CGameClient *pGameClient)
-{
-	const int FastInputMode = BcFastInputNormalizedMode(g_Config.m_BcFastInputMode);
-	if(FastInputMode == 0)
-		return EffectiveFastInputOffsetTicksFastMode();
-	if(FastInputMode == 4)
-		return EffectiveFastInputOffsetTicksSaikoPlusMode();
-	return EffectiveFastInputOffsetTicksBestMode(pGameClient);
-}
+	float EffectiveFastInputOffsetTicksBestMode(const CGameClient *pGameClient)
+	{
+		// Mode 3: best input (tick based, stored in 0.01 ticks, with smoothing and latency compensation)
+		if(!g_Config.m_TcFastInput ||
+			BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) != 3 ||
+			IsGameplayInputComponentDisabled())
+			return 0.0f;
 
-int FastInputPredictionTicks(float OffsetTicks)
-{
-	if(OffsetTicks <= 0.0f)
-		return 0;
-	if(BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 4)
-		return (int)std::ceil(OffsetTicks + 1.0f);
-	return (int)std::ceil(OffsetTicks);
-}
+		const CGameClient::SBestInputSettings Settings = pGameClient->BestInputSettings();
+		if(Settings.m_Offset <= 0)
+			return 0.0f;
 
-int FastInputPredictionTicksOthers(float OffsetTicks)
-{
-	if(OffsetTicks <= 0.0f)
-		return 0;
-	if(BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 4)
+		// Base offset in ticks
+		float Offset = Settings.m_Offset / 100.0f;
+
+		// Apply smoothing (reduces jitter)
+		if(Settings.m_Smoothing > 0)
+		{
+			// Smoothing reduces the effective offset slightly
+			float SmoothFactor = 1.0f - (Settings.m_Smoothing / 200.0f);
+			Offset *= SmoothFactor;
+		}
+
+		// Apply latency compensation (increases offset based on ping)
+		if(Settings.m_LatencyComp > 0)
+		{
+			float CompFactor = 1.0f + (Settings.m_LatencyComp / 100.0f);
+			Offset *= CompFactor;
+		}
+
+		return Offset;
+	}
+
+	float EffectiveFastInputOffsetTicksSaikoPlusMode()
+	{
+		if(!g_Config.m_TcFastInput ||
+			BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) != 4 ||
+			IsGameplayInputComponentDisabled())
+			return 0.0f;
+		if(g_Config.m_BcSaikoPlusAmount <= 0)
+			return 0.0f;
+		return g_Config.m_BcSaikoPlusAmount / 100.0f;
+	}
+
+	float EffectiveFastInputOffsetTicks(const CGameClient *pGameClient)
+	{
+		const int FastInputMode = BcFastInputNormalizedMode(g_Config.m_BcFastInputMode);
+		if(FastInputMode == 0)
+			return EffectiveFastInputOffsetTicksFastMode();
+		if(FastInputMode == 4)
+			return EffectiveFastInputOffsetTicksSaikoPlusMode();
+		return EffectiveFastInputOffsetTicksBestMode(pGameClient);
+	}
+
+	int FastInputPredictionTicks(float OffsetTicks)
+	{
+		if(OffsetTicks <= 0.0f)
+			return 0;
+		if(BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 4)
+			return (int)std::ceil(OffsetTicks + 1.0f);
 		return (int)std::ceil(OffsetTicks);
-	return FastInputPredictionTicks(OffsetTicks);
-}
-
-void ApplyFastInputOffset(float OffsetTicks, int &Tick, float &Intra)
-{
-	if(OffsetTicks <= 0.0f)
-		return;
-
-	const int WholeTicks = (int)OffsetTicks;
-	const float OffsetIntra = OffsetTicks - WholeTicks;
-
-	const float CombinedIntra = Intra + OffsetIntra;
-	const int CarryOverTicks = (int)CombinedIntra;
-
-	Tick += WholeTicks + CarryOverTicks;
-	Intra = CombinedIntra - CarryOverTicks;
-}
-
-float BestInputInterpolationAmount(float Fraction, float DeltaLength, bool Enable)
-{
-	if(!Enable)
-		return Fraction;
-
-	const float T = std::clamp(Fraction, 0.0f, 1.0f);
-	const float T2 = T * T;
-	const float CubicT = 3.0f * T2 - 2.0f * T2 * T;
-	switch(std::clamp(g_Config.m_BcBestInputInterpolation, 1, 3))
-	{
-	case 2:
-		return CubicT;
-	case 3:
-		return mix(T, CubicT, std::clamp(DeltaLength / 1000.0f, 0.0f, 1.0f));
-	default:
-		return T;
 	}
-}
 
-vec2 BestInputInterpolate(vec2 PrevPos, vec2 CurPos, float Fraction, bool Enable)
-{
-	return mix(PrevPos, CurPos, BestInputInterpolationAmount(Fraction, length(CurPos - PrevPos), Enable));
-}
+	int FastInputPredictionTicksOthers(float OffsetTicks)
+	{
+		if(OffsetTicks <= 0.0f)
+			return 0;
+		if(BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 4)
+			return (int)std::ceil(OffsetTicks);
+		return FastInputPredictionTicks(OffsetTicks);
+	}
 
-float BestInputInterpolate(float PrevPos, float CurPos, float Fraction, bool Enable)
-{
-	return mix(PrevPos, CurPos, BestInputInterpolationAmount(Fraction, absolute(CurPos - PrevPos), Enable));
-}
+	void ApplyFastInputOffset(float OffsetTicks, int &Tick, float &Intra)
+	{
+		if(OffsetTicks <= 0.0f)
+			return;
 
-bool EffectiveFastInputOthers()
-{
-	return BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 0 &&
-		g_Config.m_TcFastInputOthers != 0 &&
-		!IsGameplayInputComponentDisabled();
-}
+		const int WholeTicks = (int)OffsetTicks;
+		const float OffsetIntra = OffsetTicks - WholeTicks;
 
-bool EffectiveBestInputOthers()
-{
-	return BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 3 &&
-		g_Config.m_BcBestInputOthers != 0 &&
-		!IsGameplayInputComponentDisabled();
-}
+		const float CombinedIntra = Intra + OffsetIntra;
+		const int CarryOverTicks = (int)CombinedIntra;
 
-bool EffectiveSaikoPlusOthers()
-{
-	return BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 4 &&
-		g_Config.m_BcSaikoPlusOthers != 0 &&
-		!IsGameplayInputComponentDisabled();
-}
+		Tick += WholeTicks + CarryOverTicks;
+		Intra = CombinedIntra - CarryOverTicks;
+	}
 
-bool EffectiveAnyFastInputOthers()
-{
-	return EffectiveFastInputOthers() || EffectiveBestInputOthers() || EffectiveSaikoPlusOthers();
-}
+	float BestInputInterpolationAmount(float Fraction, float DeltaLength, bool Enable)
+	{
+		if(!Enable)
+			return Fraction;
 
-bool EffectiveImmediateFastInputOthers()
-{
-	return EffectiveBestInputOthers() || EffectiveSaikoPlusOthers();
-}
+		const float T = std::clamp(Fraction, 0.0f, 1.0f);
+		const float T2 = T * T;
+		const float CubicT = 3.0f * T2 - 2.0f * T2 * T;
+		switch(std::clamp(g_Config.m_BcBestInputInterpolation, 1, 3))
+		{
+		case 2:
+			return CubicT;
+		case 3:
+			return mix(T, CubicT, std::clamp(DeltaLength / 1000.0f, 0.0f, 1.0f));
+		default:
+			return T;
+		}
+	}
+
+	vec2 BestInputInterpolate(vec2 PrevPos, vec2 CurPos, float Fraction, bool Enable)
+	{
+		return mix(PrevPos, CurPos, BestInputInterpolationAmount(Fraction, length(CurPos - PrevPos), Enable));
+	}
+
+	float BestInputInterpolate(float PrevPos, float CurPos, float Fraction, bool Enable)
+	{
+		return mix(PrevPos, CurPos, BestInputInterpolationAmount(Fraction, absolute(CurPos - PrevPos), Enable));
+	}
+
+	bool EffectiveFastInputOthers()
+	{
+		return BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 0 &&
+		       g_Config.m_TcFastInputOthers != 0 &&
+		       !IsGameplayInputComponentDisabled();
+	}
+
+	bool EffectiveBestInputOthers()
+	{
+		return BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 3 &&
+		       g_Config.m_BcBestInputOthers != 0 &&
+		       !IsGameplayInputComponentDisabled();
+	}
+
+	bool EffectiveSaikoPlusOthers()
+	{
+		return BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 4 &&
+		       g_Config.m_BcSaikoPlusOthers != 0 &&
+		       !IsGameplayInputComponentDisabled();
+	}
+
+	bool EffectiveAnyFastInputOthers()
+	{
+		return EffectiveFastInputOthers() || EffectiveBestInputOthers() || EffectiveSaikoPlusOthers();
+	}
+
+	bool EffectiveImmediateFastInputOthers()
+	{
+		return EffectiveBestInputOthers() || EffectiveSaikoPlusOthers();
+	}
 } // namespace
 
 const char *CGameClient::Version() const { return GAME_VERSION; }
@@ -581,11 +580,11 @@ void CGameClient::OnConsoleInit()
 					      &m_TClient, // TClient (Must be before chat and players)
 					      &m_Afterimage,
 					      &m_Players,
-						  &m_MovingTilesBackground, // TClient
-						  &m_FastPractice,
-						  &m_MapLayersForeground,
-						  &m_MovingTilesForeground, // TClient
-					      &m_Outlines,  // TClient
+					      &m_MovingTilesBackground, // TClient
+					      &m_FastPractice,
+					      &m_MapLayersForeground,
+					      &m_MovingTilesForeground, // TClient
+					      &m_Outlines, // TClient
 					      &m_Mumble, // TClient
 					      &m_Pet, // TClient
 					      &m_MagicParticles,
@@ -622,9 +621,9 @@ void CGameClient::OnConsoleInit()
 					      &m_AdminPanel,
 					      &m_Menus,
 					      &m_IrcChat,
-						      &m_Tooltips,
-						      &m_Scripting, // TClient
-						      &m_KeyBinder,
+					      &m_Tooltips,
+					      &m_Scripting, // TClient
+					      &m_KeyBinder,
 					      &m_GameConsole,
 					      &m_MenuBackground,
 					      &m_VoiceChat,
@@ -2785,7 +2784,7 @@ void CGameClient::OnNewSnapshot()
 			if(m_DemoSpecId > SPEC_FREEVIEW && m_Snap.m_aCharacters[m_DemoSpecId].m_Active)
 				m_Snap.m_SpecInfo.m_SpectatorId = m_DemoSpecId;
 			else
-			m_Snap.m_SpecInfo.m_SpectatorId = SPEC_FREEVIEW;
+				m_Snap.m_SpecInfo.m_SpectatorId = SPEC_FREEVIEW;
 		}
 	}
 

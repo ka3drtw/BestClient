@@ -16,13 +16,13 @@
 #include <generated/protocol.h>
 
 #include <game/client/animstate.h>
+#include <game/client/components/bestclient/r_jelly.h>
+#include <game/client/components/bestclient/r_trail.h>
 #include <game/client/components/controls.h>
 #include <game/client/components/effects.h>
 #include <game/client/components/flow.h>
 #include <game/client/components/skins.h>
 #include <game/client/components/sounds.h>
-#include <game/client/components/bestclient/r_jelly.h>
-#include <game/client/components/bestclient/r_trail.h>
 #include <game/client/gameclient.h>
 #include <game/collision.h>
 #include <game/gamecore.h>

@@ -22,9 +22,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <condition_variable>
 #include <cstddef>
-#include <cmath>
 #include <cstdlib>
 #include <functional>
 #include <limits>
