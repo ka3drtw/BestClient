@@ -243,6 +243,10 @@ bool CClientIndicator::IsPlayerDeveloper(int ClientId) const
 
 void CClientIndicator::RefreshBrowserCache(bool Force)
 {
+#if defined(CONF_HEADLESS_CLIENT)
+	(void)Force;
+	return;
+#endif
 	if(g_Config.m_BcClientIndicator == 0)
 		return;
 	NormalizeBestClientIndicatorConfig();
@@ -276,6 +280,10 @@ void CClientIndicator::RefreshBrowserCache(bool Force)
 
 void CClientIndicator::RefreshToken(bool Force)
 {
+#if defined(CONF_HEADLESS_CLIENT)
+	(void)Force;
+	return;
+#endif
 	if(g_Config.m_BcClientIndicator == 0)
 		return;
 	NormalizeBestClientIndicatorConfig();

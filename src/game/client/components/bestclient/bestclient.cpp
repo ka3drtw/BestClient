@@ -645,7 +645,9 @@ void CBestClient::OnInit()
 {
 	LoadHookComboSounds();
 	ResetHookComboState();
+#if !defined(CONF_HEADLESS_CLIENT)
 	FetchBestClientInfo();
+#endif
 }
 
 void CBestClient::OnShutdown()

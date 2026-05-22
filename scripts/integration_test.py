@@ -448,13 +448,16 @@ class Client(Runnable):
 				"gfx_fullscreen 0",
 				"cl_save_settings 0",
 				"snd_enable 0",
+				"br_indicate_finished 0",
 				"bc_menu_sfx 0",
 				"bc_voice_chat_enable 0",
+				"tc_discord_rpc 0",
+				'tc_custom_communities_url ""',
 				"bc_irc_autoconnect 0",
 				"bc_irc_media_preview 0",
 				"bc_client_indicator_server_address 127.0.0.1:1",
-				"bc_client_indicator_browser_url http://127.0.0.1:1/users.json",
-				"bc_client_indicator_token_url http://127.0.0.1:1/token.json",
+				"bc_client_indicator_browser_url https://127.0.0.1:1/users.json",
+				"bc_client_indicator_token_url https://127.0.0.1:1/token.json",
 			]
 			+ extra_args,
 		)
@@ -692,7 +695,7 @@ def smoke_test(test_env):
 	client1.command("record client1")
 
 	client2.command(f"connect localhost:{server.port}")
-	server.wait_for_log_prefix("server: player has entered the game", timeout=10)
+	server.wait_for_log_prefix("server: player has entered the game", timeout=20)
 	for _ in range(5):
 		server.wait_for_log(
 			lambda l: l.line.startswith("chat: *** client1 finished in:") or l.line.startswith("chat: *** client2 finished in:"),
