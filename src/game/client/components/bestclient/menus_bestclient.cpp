@@ -64,7 +64,7 @@ static bool IsBestClientTabFlagSet(int32_t Flags, int Tab)
 	return (Flags & (1 << Tab)) != 0;
 }
 
-static void RenderSettingsBestClientReShadeUnsupported(CUi *pUi, CUIRect MainView)
+[[maybe_unused]] static void RenderSettingsBestClientReShadeUnsupported(CUi *pUi, CUIRect MainView)
 {
 	CUIRect Content, Line;
 	MainView.Margin(32.0f, &Content);
@@ -329,7 +329,7 @@ static bool BestClientFileExistsAbsolute(const char *pAbsolutePath)
 	return pAbsolutePath != nullptr && pAbsolutePath[0] != '\0' && fs_is_file(pAbsolutePath);
 }
 
-static void BestClientSetIniRootKey(std::string &Text, const char *pKey, const std::string &Value)
+[[maybe_unused]] static void BestClientSetIniRootKey(std::string &Text, const char *pKey, const std::string &Value)
 {
 	const std::string Prefix = std::string(pKey) + "=";
 	const size_t FirstSectionPos = Text.find('[');
@@ -354,7 +354,7 @@ static void BestClientSetIniRootKey(std::string &Text, const char *pKey, const s
 	Text.insert(0, Prefix + Value + "\n");
 }
 
-static void BestClientSetIniSectionKey(std::string &Text, const char *pSection, const char *pKey, const std::string &Value)
+[[maybe_unused]] static void BestClientSetIniSectionKey(std::string &Text, const char *pSection, const char *pKey, const std::string &Value)
 {
 	const std::string SectionHeader = std::string("[") + pSection + "]";
 	const std::string Prefix = std::string(pKey) + "=";
@@ -1185,7 +1185,7 @@ static void BestClientBuildReShadeTechniqueIndex(IStorage *pStorage)
 	gs_BestClientReShadeUiCache.m_HasTechniqueIndex = true;
 }
 
-static std::vector<SBestClientReShadeTechniqueMeta> BestClientBuildReShadeTechniqueCatalog(IStorage *pStorage, const SBestClientReShadePresetState &PresetState)
+[[maybe_unused]] static std::vector<SBestClientReShadeTechniqueMeta> BestClientBuildReShadeTechniqueCatalog(IStorage *pStorage, const SBestClientReShadePresetState &PresetState)
 {
 	BestClientBuildReShadeTechniqueIndex(pStorage);
 

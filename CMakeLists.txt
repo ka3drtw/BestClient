@@ -4191,8 +4191,6 @@ if(CLIENT AND DMGBUILD_FOUND)
 endif()
 
 foreach(ext zip tar.gz tar.xz)
-  set(TAR_MODE cf)
-  set(TAR_EXTRA_ARGS)
   string(REPLACE . _ EXT_SLUG ${ext})
 
   set(TMPDIR pack_${CPACK_PACKAGE_FILE_NAME}_${EXT_SLUG}/${CPACK_PACKAGE_FILE_NAME})
@@ -4232,11 +4230,23 @@ foreach(ext zip tar.gz tar.xz)
   endforeach()
 
   if(ext STREQUAL zip)
-    set(TAR_EXTRA_ARGS --format=zip)
+    set(PACKAGE_ARCHIVE_COMMAND
+      ${CMAKE_COMMAND} -E tar cf ../${CPACK_PACKAGE_FILE_NAME}.${ext} --format=zip ${CPACK_PACKAGE_FILE_NAME}/
+    )
   elseif(ext STREQUAL tar.gz)
-    set(TAR_MODE cfz)
+    if(TARGET_OS STREQUAL "linux" OR TARGET_OS STREQUAL "mac")
+      set(PACKAGE_ARCHIVE_COMMAND tar -czf ../${CPACK_PACKAGE_FILE_NAME}.${ext} ${CPACK_PACKAGE_FILE_NAME}/)
+    else()
+      set(PACKAGE_ARCHIVE_COMMAND ${CMAKE_COMMAND} -E tar cfz ../${CPACK_PACKAGE_FILE_NAME}.${ext} ${CPACK_PACKAGE_FILE_NAME}/)
+    endif()
   elseif(ext STREQUAL tar.xz)
-    set(TAR_MODE cfJ)
+    if(TARGET_OS STREQUAL "linux" OR TARGET_OS STREQUAL "mac")
+      set(PACKAGE_ARCHIVE_COMMAND tar -cJf ../${CPACK_PACKAGE_FILE_NAME}.${ext} ${CPACK_PACKAGE_FILE_NAME}/)
+    else()
+      set(PACKAGE_ARCHIVE_COMMAND ${CMAKE_COMMAND} -E tar cfJ ../${CPACK_PACKAGE_FILE_NAME}.${ext} ${CPACK_PACKAGE_FILE_NAME}/)
+    endif()
+  else()
+    set(PACKAGE_ARCHIVE_COMMAND ${CMAKE_COMMAND} -E tar cf ../${CPACK_PACKAGE_FILE_NAME}.${ext} ${CPACK_PACKAGE_FILE_NAME}/)
   endif()
   add_custom_command(OUTPUT ${CPACK_PACKAGE_FILE_NAME}.${ext}
     COMMAND ${CMAKE_COMMAND} -E rm -f ${PACKAGE_OUTPUT}
@@ -4246,7 +4256,7 @@ foreach(ext zip tar.gz tar.xz)
     ${COPY_DIR_COMMANDS}
     ${COPY_TARGET_COMMANDS}
     ${STRIP_TARGET_COMMANDS}
-    COMMAND ${CMAKE_COMMAND} -E chdir pack_${CPACK_PACKAGE_FILE_NAME}_${EXT_SLUG} ${CMAKE_COMMAND} -E tar ${TAR_MODE} ../${CPACK_PACKAGE_FILE_NAME}.${ext} ${TAR_EXTRA_ARGS} ${CPACK_PACKAGE_FILE_NAME}/
+    COMMAND ${CMAKE_COMMAND} -E chdir pack_${CPACK_PACKAGE_FILE_NAME}_${EXT_SLUG} ${PACKAGE_ARCHIVE_COMMAND}
     DEPENDS ${CPACK_TARGETS} ${PACKAGE_EXTRA_DEPENDS}
   )
   add_custom_target(package_${EXT_SLUG} DEPENDS ${CPACK_PACKAGE_FILE_NAME}.${ext})
