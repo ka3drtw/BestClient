@@ -2,8 +2,8 @@
 
 #include "data_version.h"
 
-#include <base/math.h>
 #include <base/log.h>
+#include <base/math.h>
 
 #include <engine/client.h>
 #include <engine/client/enums.h>
