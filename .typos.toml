@@ -10,6 +10,7 @@ extend-exclude = [
 	"ddnet-libs",
 	"noxy-libs",
 	"other/icons/*.icns",
+	"other/reshade/reshade-shaders",
 	"memcheck.supp",
 	"scripts/android/files/res",
 	"src/engine/external",
