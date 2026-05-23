@@ -4280,7 +4280,7 @@ foreach(ext zip tar.gz tar.xz)
   endif()
 
   add_custom_command(OUTPUT ${CPACK_PACKAGE_FILE_NAME}.${ext}
-    COMMAND ${CMAKE_COMMAND} -E rm -f ${PACKAGE_OUTPUT}
+    COMMAND ${CMAKE_COMMAND} -E remove -f ${PACKAGE_OUTPUT}
     COMMAND ${CMAKE_COMMAND} -E remove_directory ${TMPDIR}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${TMPDIR}
     ${COPY_FILE_COMMANDS}
@@ -4546,9 +4546,9 @@ if(TARGET_OS STREQUAL "windows" AND NOT MINGW)
   add_custom_target(bestclient-reshade-assets ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory
       "$<TARGET_FILE_DIR:game-client>/data/reshade"
-    COMMAND ${CMAKE_COMMAND} -E rm -f
+    COMMAND ${CMAKE_COMMAND} -E remove -f
       "$<TARGET_FILE_DIR:game-client>/vulkan-1.dll"
-    COMMAND ${CMAKE_COMMAND} -E rm -f
+    COMMAND ${CMAKE_COMMAND} -E remove -f
       "$<TARGET_FILE_DIR:game-client>/data/reshade/ReShadePreset.ini"
     COMMAND ${CMAKE_COMMAND} -E remove_directory
       "$<TARGET_FILE_DIR:game-client>/reshade-shaders"
