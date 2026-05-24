@@ -3505,7 +3505,7 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 			GameClient()->m_Tooltips.DoToolTip(&s_EyeComfortResetButton, &ResetHitbox, BCLocalize("Reset to defaults"));
 			if(EyeComfortResetClicked)
 				g_Config.m_BcEyeComfortStrength = DefaultConfig::BcEyeComfortStrength;
-			Ui()->DoLabel(&TitleLabel, BCLocalize("Eye Comfort"), HeadlineFontSize, TEXTALIGN_ML);
+			RenderBestClientHeadlineBadge(Ui(), Graphics(), TextRender(), TitleLabel, BCLocalize("Eye Comfort"), "NEW", HeadlineFontSize);
 			Content.HSplitTop(MarginSmall, nullptr, &Content);
 
 			DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_BcEyeComfort, BCLocalize("Enable warm screen filter"), &g_Config.m_BcEyeComfort, &Content, LineSize);
@@ -5518,7 +5518,7 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 			BeginBlock(Column, ContentHeight, Content);
 
 			Content.HSplitTop(LineSize, &Label, &Content);
-			RenderBestClientHeadlineBadge(Ui(), Graphics(), TextRender(), Label, BCLocalize("Focus Mode"), "NEW", HeadlineFontSize);
+			Ui()->DoLabel(&Label, BCLocalize("Focus Mode"), HeadlineFontSize, TEXTALIGN_ML);
 			Content.HSplitTop(MarginSmall, nullptr, &Content);
 
 			DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_ClFocusMode, BCLocalize("Enable Focus Mode"), &g_Config.m_ClFocusMode, &Content, LineSize);
