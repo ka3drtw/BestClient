@@ -65,6 +65,8 @@ MACRO_CONFIG_INT(BcReshadeNoticeDoNotShowAgain, bc_reshade_notice_do_not_show_ag
 MACRO_CONFIG_INT(BcReshadeAutoAccept, bc_reshade_auto_accept, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Automatically accept newly enabled ReShade effects without the confirmation popup")
 MACRO_CONFIG_INT(BcReshadeShowOnlyEnabled, bc_reshade_show_only_enabled, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Show only enabled shaders in the right-side ReShade list")
 MACRO_CONFIG_INT(BcHideHudInSettings, bc_hide_hud_in_settings, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Hide HUD while settings page is open")
+MACRO_CONFIG_INT(BcEyeComfort, bc_eye_comfort, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Render a warm yellow screen overlay to reduce eye strain")
+MACRO_CONFIG_INT(BcEyeComfortStrength, bc_eye_comfort_strength, 35, 0, 100, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Eye comfort intensity in percent; increases warmth and lowers brightness together")
 MACRO_CONFIG_INT(BcEscPlayerList, bc_esc_player_list, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Show players list in ESC game tab")
 MACRO_CONFIG_INT(BcShowPointsInTab, bc_show_points_in_tab, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Show DDNet points in the scoreboard between player name and clan")
 MACRO_CONFIG_INT(BcBestClientSettingsTabs, bc_bestclient_settings_tabs, 0, 0, 65536, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Bit flags to disable BestClient settings tabs")

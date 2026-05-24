@@ -115,6 +115,34 @@ namespace
 			g_Config.m_BcDisabledComponentsMaskLo, g_Config.m_BcDisabledComponentsMaskHi);
 	}
 
+	void RenderEyeComfortOverlay(CGameClient *pGameClient)
+	{
+		if(!g_Config.m_BcEyeComfort || pGameClient->m_BestClient.IsComponentDisabled(CBestClient::COMPONENT_VISUALS_EYE_COMFORT))
+			return;
+
+		const float Strength = std::clamp(g_Config.m_BcEyeComfortStrength / 100.0f, 0.0f, 1.0f);
+		const CUIRect Screen = *pGameClient->Ui()->Screen();
+
+		if(Strength <= 0.0f)
+			return;
+
+		const float Brightness = std::clamp(1.0f - Strength * 0.43f, 0.57f, 1.0f);
+
+		pGameClient->Ui()->MapScreen();
+		pGameClient->Graphics()->TextureClear();
+		pGameClient->Graphics()->BlendNormal();
+		if(Strength > 0.0f)
+		{
+			const ColorRGBA WarmOverlayColor(1.0f, 0.93f, 0.74f, 0.34f * Strength);
+			pGameClient->Graphics()->DrawRect(Screen.x, Screen.y, Screen.w, Screen.h, WarmOverlayColor, IGraphics::CORNER_ALL, 0.0f);
+		}
+		if(Brightness < 1.0f)
+		{
+			const ColorRGBA BrightnessOverlayColor(0.0f, 0.0f, 0.0f, 1.0f - Brightness);
+			pGameClient->Graphics()->DrawRect(Screen.x, Screen.y, Screen.w, Screen.h, BrightnessOverlayColor, IGraphics::CORNER_ALL, 0.0f);
+		}
+	}
+
 	float EffectiveFastInputOffsetTicksFastMode()
 	{
 		if(!g_Config.m_TcFastInput ||
@@ -1376,6 +1404,7 @@ void CGameClient::OnRender()
 	Input()->Clear();
 
 	CLineInput::RenderCandidates();
+	RenderEyeComfortOverlay(this);
 
 	const bool WasNewTick = m_NewTick;
 

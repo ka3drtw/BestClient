@@ -2727,6 +2727,7 @@ static const SBestClientComponentEntry gs_aBestClientComponentEntries[] = {
 	{CBestClient::COMPONENT_VISUALS_MEDIA_BACKGROUND, "Media Background", COMPONENTS_GROUP_VISUALS},
 	{CBestClient::COMPONENT_VISUALS_ANIMATIONS, "Animations", COMPONENTS_GROUP_VISUALS},
 	{CBestClient::COMPONENT_VISUALS_ASPECT_RATIO, "Aspect Ratio", COMPONENTS_GROUP_VISUALS},
+	{CBestClient::COMPONENT_VISUALS_EYE_COMFORT, "Eye Comfort", COMPONENTS_GROUP_VISUALS},
 	{CBestClient::COMPONENT_GAMEPLAY_HOOK_COMBO, "Hook Combo", COMPONENTS_GROUP_VISUALS},
 	{CBestClient::COMPONENT_GAMEPLAY_INPUT, "Input", COMPONENTS_GROUP_GAMEPLAY},
 	{CBestClient::COMPONENT_GAMEPLAY_FAST_ACTIONS, "Fast Actions", COMPONENTS_GROUP_GAMEPLAY},
@@ -3453,6 +3454,48 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 				TextRender()->TextColor(ColorRGBA(0.55f, 1.0f, 0.55f, 1.0f));
 			Ui()->DoLabel(&Row, m_MenuMediaBackground.StatusText(), 11.0f, TEXTALIGN_ML);
 			TextRender()->TextColor(TextRender()->DefaultTextColor());
+			Column.HSplitTop(MarginBetweenSections, nullptr, &Column);
+		}
+
+		if(!GameClient()->m_BestClient.IsComponentDisabled(CBestClient::COMPONENT_VISUALS_EYE_COMFORT))
+		{
+			static float s_EyeComfortPhase = 0.0f;
+			static CButtonContainer s_EyeComfortResetButton;
+			const bool EyeComfortEnabled = g_Config.m_BcEyeComfort != 0;
+			UpdateRevealPhase(s_EyeComfortPhase, EyeComfortEnabled);
+			const float ExtraTargetHeight = LineSize;
+			const float ContentHeight = LineSize + MarginSmall + LineSize + ExtraTargetHeight * s_EyeComfortPhase;
+			CUIRect Content, Label, Row, Visible;
+			BeginBlock(Column, ContentHeight, Content);
+
+			Content.HSplitTop(LineSize, &Label, &Content);
+			CUIRect TitleLabel, ResetButton, ResetHitbox;
+			Label.VSplitRight(LineSize + 8.0f, &TitleLabel, &ResetButton);
+			ResetHitbox = ResetButton;
+			const bool EyeComfortResetClicked = Ui()->DoButton_FontIcon(&s_EyeComfortResetButton, FontIcon::ARROW_ROTATE_LEFT, 0, &ResetHitbox, BUTTONFLAG_LEFT);
+			GameClient()->m_Tooltips.DoToolTip(&s_EyeComfortResetButton, &ResetHitbox, BCLocalize("Reset to defaults"));
+			if(EyeComfortResetClicked)
+				g_Config.m_BcEyeComfortStrength = DefaultConfig::BcEyeComfortStrength;
+			Ui()->DoLabel(&TitleLabel, BCLocalize("Eye Comfort"), HeadlineFontSize, TEXTALIGN_ML);
+			Content.HSplitTop(MarginSmall, nullptr, &Content);
+
+			DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_BcEyeComfort, BCLocalize("Enable warm screen filter"), &g_Config.m_BcEyeComfort, &Content, LineSize);
+
+			const float ExpandedHeight = ExtraTargetHeight * s_EyeComfortPhase;
+			if(!EyeComfortResetClicked && ExpandedHeight > 0.0f)
+			{
+				Content.HSplitTop(ExpandedHeight, &Visible, &Content);
+				Ui()->ClipEnable(&Visible);
+				struct SScopedClip
+				{
+					CUi *m_pUi;
+					~SScopedClip() { m_pUi->ClipDisable(); }
+				} ClipGuard{Ui()};
+
+				CUIRect Expand = {Visible.x, Visible.y, Visible.w, ExtraTargetHeight};
+				Expand.HSplitTop(LineSize, &Row, &Expand);
+				Ui()->DoScrollbarOption(&g_Config.m_BcEyeComfortStrength, &g_Config.m_BcEyeComfortStrength, &Row, BCLocalize("Comfort level"), 0, 100, &CUi::ms_LinearScrollbarScale, 0u, "%");
+			}
 			Column.HSplitTop(MarginBetweenSections, nullptr, &Column);
 		}
 
