@@ -64,6 +64,35 @@ static bool IsBestClientTabFlagSet(int32_t Flags, int Tab)
 	return (Flags & (1 << Tab)) != 0;
 }
 
+static void RenderBestClientHeadlineBadge(CUi *pUi, IGraphics *pGraphics, ITextRender *pTextRender, const CUIRect &LabelRect, const char *pHeadline, const char *pBadge, float FontSize)
+{
+	pUi->DoLabel(&LabelRect, pHeadline, FontSize, TEXTALIGN_ML);
+
+	const float BadgeFontSize = maximum(8.0f, FontSize * 0.5f);
+	const float BadgePaddingX = 6.0f;
+	const float BadgeHeight = maximum(12.0f, FontSize * 0.95f);
+	const float HeadlineWidth = pTextRender->TextWidth(FontSize, pHeadline, -1, -1.0f);
+	const float BadgeWidth = pTextRender->TextWidth(BadgeFontSize, pBadge, -1, -1.0f) + BadgePaddingX * 2.0f;
+
+	CUIRect BadgeRect = {
+		LabelRect.x + HeadlineWidth + 8.0f,
+		LabelRect.y + (LabelRect.h - BadgeHeight) * 0.5f,
+		BadgeWidth,
+		BadgeHeight,
+	};
+	pGraphics->DrawRect4(
+		BadgeRect.x, BadgeRect.y, BadgeRect.w, BadgeRect.h,
+		ColorRGBA(1.00f, 0.76f, 0.16f, 1.0f),
+		ColorRGBA(0.92f, 0.56f, 0.02f, 1.0f),
+		ColorRGBA(1.00f, 0.76f, 0.16f, 1.0f),
+		ColorRGBA(0.92f, 0.56f, 0.02f, 1.0f),
+		IGraphics::CORNER_ALL, 5.0f);
+
+	pTextRender->TextColor(ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f));
+	pUi->DoLabel(&BadgeRect, pBadge, BadgeFontSize, TEXTALIGN_MC);
+	pTextRender->TextColor(pTextRender->DefaultTextColor());
+}
+
 [[maybe_unused]] static void RenderSettingsBestClientReShadeUnsupported(CUi *pUi, CUIRect MainView)
 {
 	CUIRect Content, Line;
@@ -5489,7 +5518,7 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 			BeginBlock(Column, ContentHeight, Content);
 
 			Content.HSplitTop(LineSize, &Label, &Content);
-			Ui()->DoLabel(&Label, BCLocalize("Focus Mode"), HeadlineFontSize, TEXTALIGN_ML);
+			RenderBestClientHeadlineBadge(Ui(), Graphics(), TextRender(), Label, BCLocalize("Focus Mode"), "NEW", HeadlineFontSize);
 			Content.HSplitTop(MarginSmall, nullptr, &Content);
 
 			DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_ClFocusMode, BCLocalize("Enable Focus Mode"), &g_Config.m_ClFocusMode, &Content, LineSize);
