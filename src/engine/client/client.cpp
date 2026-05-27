@@ -446,9 +446,30 @@ int CClient::SendMsgActive(CMsgPacker *pMsg, int Flags)
 
 void CClient::SendBClientInfo(int Conn)
 {
-	CMsgPacker Msg(NETMSG_IAMBESTCLIENT, true);
-	Msg.AddString(BESTCLIENT_VERSION " built on " __DATE__ ", " __TIME__);
-	SendMsg(Conn, &Msg, MSGFLAG_VITAL);
+	int64_t ExeSize = -1;
+	if(IOHANDLE CurrentExe = io_current_exe())
+	{
+		ExeSize = io_length(CurrentExe);
+		io_close(CurrentExe);
+	}
+
+	{
+		CMsgPacker Msg(NETMSG_IAMBESTCLIENT, true);
+		Msg.AddString(BESTCLIENT_VERSION " built on " __DATE__ ", " __TIME__);
+		SendMsg(Conn, &Msg, MSGFLAG_VITAL);
+	}
+	{
+		CMsgPacker Msg(NETMSG_IAMTATER, true);
+		Msg.AddString(BESTCLIENT_VERSION " built on " __DATE__ ", " __TIME__);
+		SendMsg(Conn, &Msg, MSGFLAG_VITAL);
+	}
+	{
+		char aBuf[32];
+		str_format(aBuf, sizeof(aBuf), "%" PRId64, ExeSize);
+		CMsgPacker Msg(NETMSG_BESTCLIENT_EXESIZE, true);
+		Msg.AddString(aBuf);
+		SendMsg(Conn, &Msg, MSGFLAG_VITAL);
+	}
 }
 
 void CClient::SendInfo(int Conn)
