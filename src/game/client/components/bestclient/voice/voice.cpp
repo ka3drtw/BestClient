@@ -194,6 +194,11 @@ namespace
 			str_comp(pAddress, "127.0.0.1:8777") == 0 || str_comp(pAddress, "localhost:8777") == 0;
 	}
 
+	const char *ResolvedVoiceServerAddress(const char *pAddress)
+	{
+		return IsLegacyVoiceServerAddress(pAddress) ? DefaultVoiceServerAddress().c_str() : pAddress;
+	}
+
 	void EnsureDefaultVoiceServerAddress()
 	{
 		if(IsLegacyVoiceServerAddress(g_Config.m_BcVoiceChatServerAddress))
@@ -1104,7 +1109,7 @@ void CVoiceChat::RenderMenuSettingsBlock(const CUIRect &View, float RevealPhase)
 		if(str_comp(g_Config.m_BcVoiceChatServerAddress, pAddress) != 0)
 		{
 			str_copy(g_Config.m_BcVoiceChatServerAddress, pAddress, sizeof(g_Config.m_BcVoiceChatServerAddress));
-			str_copy(m_aLastServerAddr, pAddress, sizeof(m_aLastServerAddr));
+			str_copy(m_aLastServerAddr, ResolvedVoiceServerAddress(pAddress), sizeof(m_aLastServerAddr));
 			if(Client()->State() == IClient::STATE_ONLINE && g_Config.m_BcVoiceChatEnable)
 			{
 				if(m_Socket)
@@ -1352,7 +1357,7 @@ void CVoiceChat::RenderMenuSettingsBlock(const CUIRect &View, float RevealPhase)
 					str_format(aServerLabel, sizeof(aServerLabel), "%s (%dms)", Entry.m_Name.c_str(), Entry.m_PingMs);
 				else
 					str_format(aServerLabel, sizeof(aServerLabel), "%s (--)", Entry.m_Name.c_str());
-				const bool Selected = str_comp(Entry.m_Address.c_str(), EffectiveServerAddress().c_str()) == 0;
+				const bool Selected = str_comp(ResolvedVoiceServerAddress(Entry.m_Address.c_str()), EffectiveServerAddress().c_str()) == 0;
 				if(GameClient()->m_Menus.DoButton_Menu(&m_ServerRowButtons[(size_t)i], aServerLabel, Selected, &ServerRow))
 					ConnectToServer(Entry.m_Address.c_str());
 				ServerListView.HSplitTop(kVoiceMenuServerRowGap, nullptr, &ServerListView);
@@ -3959,9 +3964,7 @@ int CVoiceChat::LocalGameClientId() const
 
 std::string CVoiceChat::EffectiveServerAddress() const
 {
-	if(IsManagedServerConfig())
-		return DefaultVoiceServerAddress();
-	return g_Config.m_BcVoiceChatServerAddress;
+	return ResolvedVoiceServerAddress(g_Config.m_BcVoiceChatServerAddress);
 }
 
 const char *CVoiceChat::EffectiveServerLabel() const
@@ -4233,7 +4236,7 @@ void CVoiceChat::RenderServersSection(CUIRect View)
 			if(str_comp(g_Config.m_BcVoiceChatServerAddress, Entry.m_Address.c_str()) != 0)
 			{
 				str_copy(g_Config.m_BcVoiceChatServerAddress, Entry.m_Address.c_str(), sizeof(g_Config.m_BcVoiceChatServerAddress));
-				str_copy(m_aLastServerAddr, Entry.m_Address.c_str(), sizeof(m_aLastServerAddr));
+				str_copy(m_aLastServerAddr, ResolvedVoiceServerAddress(Entry.m_Address.c_str()), sizeof(m_aLastServerAddr));
 				StopVoice();
 				m_RuntimeState = RUNTIME_RECONNECTING;
 				StartVoice();
@@ -4871,6 +4874,7 @@ void CVoiceChat::FetchServerList()
 
 	m_pServerListTask = HttpGet(VoiceMasterListUrl().c_str());
 	m_pServerListTask->Timeout(CTimeout{10000, 0, 500, 5});
+	m_pServerListTask->LogProgress(HTTPLOG::NONE);
 	m_pServerListTask->IpResolve(IPRESOLVE::V4);
 	m_pServerListTask->VerifyPeer(false); // allow self-signed/local TLS endpoint
 	Http()->Run(m_pServerListTask);
@@ -4921,7 +4925,7 @@ void CVoiceChat::FinishServerList()
 			Entry.m_Address = pAddressValue->u.string.ptr;
 			if(Flag.type == json_integer)
 				Entry.m_Flag = (int)Flag.u.integer;
-			if(BestClientVoice::ParseAddress(Entry.m_Address.c_str(), BestClientVoice::DEFAULT_PORT, Entry.m_Addr))
+			if(BestClientVoice::ParseAddress(ResolvedVoiceServerAddress(Entry.m_Address.c_str()), BestClientVoice::DEFAULT_PORT, Entry.m_Addr))
 				Entry.m_HasAddr = true;
 
 			m_vServerEntries.push_back(Entry);
@@ -4937,7 +4941,7 @@ void CVoiceChat::FinishServerList()
 		const std::string EffectiveAddress = EffectiveServerAddress();
 		for(size_t i = 0; i < m_vServerEntries.size(); ++i)
 		{
-			if(str_comp(m_vServerEntries[i].m_Address.c_str(), EffectiveAddress.c_str()) == 0)
+			if(str_comp(ResolvedVoiceServerAddress(m_vServerEntries[i].m_Address.c_str()), EffectiveAddress.c_str()) == 0)
 			{
 				m_SelectedServerIndex = (int)i;
 				break;
