@@ -330,6 +330,29 @@ bool ReadDevAuthPacket(const uint8_t *pData, int DataSize, CClientPresencePacket
 	return Offset + CLIENT_PACKET_HMAC_SIZE == DataSize;
 }
 
+bool ReadClientVersionPacket(const uint8_t *pData, int DataSize, CClientVersionPacket &Out)
+{
+	int Offset = 0;
+	EPacketType Type;
+	if(!ReadHeader(pData, DataSize, Type, Offset) || Type != PACKET_VERSION_ANNOUNCE)
+		return false;
+
+	int16_t ClientId = -1;
+	if(!ReadUuid(pData, DataSize, Offset, Out.m_ClientInstanceId) ||
+		!ReadUuid(pData, DataSize, Offset, Out.m_Nonce) ||
+		!ReadU64(pData, DataSize, Offset, Out.m_Timestamp) ||
+		!ReadString(pData, DataSize, Offset, Out.m_ServerAddress) ||
+		!ReadString(pData, DataSize, Offset, Out.m_PlayerName) ||
+		!ReadS16(pData, DataSize, Offset, ClientId) ||
+		!ReadString(pData, DataSize, Offset, Out.m_ClientVersion))
+	{
+		return false;
+	}
+
+	Out.m_ClientId = ClientId;
+	return Offset + CLIENT_PACKET_PROOF_SIZE == DataSize;
+}
+
 bool ReadPeerStatePacket(const uint8_t *pData, int DataSize, CPeerState &Out)
 {
 	return ReadPeerPacketCommon(pData, DataSize, Out, PACKET_PEER_STATE);

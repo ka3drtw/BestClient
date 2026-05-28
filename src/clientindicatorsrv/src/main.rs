@@ -30,6 +30,7 @@ const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(15);
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(1);
 const MIN_PRESENCE_INTERVAL: Duration = Duration::from_millis(200);
 const MIN_DEV_AUTH_INTERVAL: Duration = Duration::from_secs(1);
+const MIN_VERSION_INTERVAL: Duration = Duration::from_secs(1);
 const MAX_ENTRIES: usize = 5000;
 const MAX_NONCES: usize = 20000;
 const MAX_BROADCAST_PEERS: usize = 128;
@@ -69,6 +70,17 @@ struct PresencePacket {
 }
 
 #[derive(Clone)]
+struct VersionPacket {
+    instance_id: [u8; 16],
+    nonce: [u8; 16],
+    timestamp: u64,
+    server_address: String,
+    player_name: String,
+    client_id: i16,
+    client_version: String,
+}
+
+#[derive(Clone)]
 struct PresenceEntry {
     identity: IdentityKey,
     server_address: String,
@@ -77,6 +89,7 @@ struct PresenceEntry {
     last_seen: Instant,
     last_seen_unix: u64,
     developer: bool,
+    client_version: Option<String>,
 }
 
 #[derive(Clone)]
@@ -120,6 +133,7 @@ struct ServerState {
     recent_nonces: HashMap<([u8; 16], [u8; 16]), Instant>,
     last_presence_by_identity: HashMap<IdentityKey, Instant>,
     last_dev_auth_by_identity: HashMap<IdentityKey, Instant>,
+    last_version_by_identity: HashMap<IdentityKey, Instant>,
     rate_by_ip: HashMap<IpAddr, TokenBucket>,
     invalid_rate_by_ip: HashMap<IpAddr, TokenBucket>,
     last_invalid_log_by_ip: HashMap<IpAddr, Instant>,
@@ -133,6 +147,7 @@ impl ServerState {
             recent_nonces: HashMap::new(),
             last_presence_by_identity: HashMap::new(),
             last_dev_auth_by_identity: HashMap::new(),
+            last_version_by_identity: HashMap::new(),
             rate_by_ip: HashMap::new(),
             invalid_rate_by_ip: HashMap::new(),
             last_invalid_log_by_ip: HashMap::new(),
@@ -225,6 +240,7 @@ impl ServerState {
         let old_server = old.as_ref().map(|entry| entry.server_address.clone());
         let old_name = old.as_ref().map(|entry| entry.player_name.clone());
         let old_developer = old.as_ref().map_or(false, |entry| entry.developer);
+        let old_client_version = old.as_ref().and_then(|entry| entry.client_version.clone());
         let entry = PresenceEntry {
             identity,
             server_address: packet.server_address,
@@ -233,6 +249,7 @@ impl ServerState {
             last_seen: now,
             last_seen_unix: unix_timestamp(),
             developer: old_developer,
+            client_version: old_client_version,
         };
         let server_changed = old_server.as_deref().is_some_and(|server| server != entry.server_address);
         let name_changed = old_name.as_deref().is_some_and(|name| name != entry.player_name);
@@ -266,6 +283,7 @@ impl ServerState {
         };
         self.last_presence_by_identity.remove(&key);
         self.last_dev_auth_by_identity.remove(&key);
+        self.last_version_by_identity.remove(&key);
         let out = self.broadcast_peer_state(&entry, PACKET_PEER_REMOVE, None, Some(key));
         (true, out)
     }
@@ -314,6 +332,44 @@ impl ServerState {
         (true, out)
     }
 
+    fn handle_version(
+        &mut self,
+        packet: VersionPacket,
+        from: SocketAddr,
+        now: Instant,
+    ) -> bool {
+        let key = IdentityKey {
+            instance_id: packet.instance_id,
+            client_id: packet.client_id,
+        };
+        if self
+            .last_version_by_identity
+            .get(&key)
+            .map_or(false, |last| now.saturating_duration_since(*last) < MIN_VERSION_INTERVAL)
+        {
+            return false;
+        }
+        self.last_version_by_identity.insert(key, now);
+
+        let Some(entry) = self.entries.get_mut(&key) else {
+            return false;
+        };
+        if entry.server_address != packet.server_address
+            || entry.player_name != packet.player_name
+            || entry.remote_addr != from
+        {
+            return false;
+        }
+
+        let client_version = sanitize_client_version(&packet.client_version);
+        if entry.client_version == client_version {
+            return false;
+        }
+
+        entry.client_version = client_version;
+        true
+    }
+
     fn cleanup(&mut self, now: Instant) -> (bool, Vec<OutPacket>) {
         let mut removed = Vec::new();
         self.entries.retain(|key, entry| {
@@ -326,6 +382,7 @@ impl ServerState {
         for (key, _) in &removed {
             self.last_presence_by_identity.remove(key);
             self.last_dev_auth_by_identity.remove(key);
+            self.last_version_by_identity.remove(key);
         }
         self.cleanup_nonces(now);
         self.rate_by_ip
@@ -454,6 +511,7 @@ impl ServerState {
                         instance_id: format_uuid(entry.identity.instance_id),
                         last_seen: entry.last_seen_unix,
                         developer: entry.developer.then_some(true),
+                        version: entry.client_version.as_deref(),
                     })
                     .collect(),
             });
@@ -480,6 +538,8 @@ struct PlayerSnapshot<'a> {
     last_seen: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     developer: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<&'a str>,
 }
 
 const PACKET_JOIN: u8 = 1;
@@ -491,6 +551,7 @@ const PACKET_PEER_LIST: u8 = 6;
 const PACKET_DEV_AUTH: u8 = 7;
 const PACKET_PEER_DEV_STATE: u8 = 8;
 const PACKET_PEER_DEV_LIST: u8 = 9;
+const PACKET_VERSION_ANNOUNCE: u8 = 11;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -668,6 +729,28 @@ fn handle_udp_packet(
         return out;
     }
 
+    if packet_type == PACKET_VERSION_ANNOUNCE {
+        let Some(packet) = read_version_packet(data, PROOF_SIZE) else {
+            state.log_invalid(ip, now, "bad version payload");
+            return Vec::new();
+        };
+        if !validate_proof(shared_token, data) {
+            if state.allow_invalid(ip, now) {
+                state.log_invalid(ip, now, "invalid version proof");
+            }
+            return Vec::new();
+        }
+        if !state.remember_nonce(packet.instance_id, packet.nonce, now) {
+            state.log_invalid(ip, now, "version nonce replay");
+            return Vec::new();
+        }
+        let _timestamp = packet.timestamp;
+        if state.handle_version(packet, from, now) {
+            let _ = state.write_snapshot();
+        }
+        return Vec::new();
+    }
+
     Vec::new()
 }
 
@@ -839,6 +922,35 @@ fn read_presence_packet(data: &[u8], allowed_types: &[u8], trailer_size: usize) 
     })
 }
 
+fn read_version_packet(data: &[u8], trailer_size: usize) -> Option<VersionPacket> {
+    let packet_type = packet_type(data)?;
+    if packet_type != PACKET_VERSION_ANNOUNCE || data.len() < trailer_size {
+        return None;
+    }
+    let payload_len = data.len().checked_sub(trailer_size)?;
+    let mut reader = Reader::new(&data[..payload_len]);
+    reader.skip(6)?;
+    let instance_id = reader.uuid()?;
+    let nonce = reader.uuid()?;
+    let timestamp = reader.u64()?;
+    let server_address = reader.string()?;
+    let player_name = reader.string()?;
+    let client_id = reader.i16()?;
+    let client_version = reader.string()?;
+    if reader.remaining() != 0 {
+        return None;
+    }
+    Some(VersionPacket {
+        instance_id,
+        nonce,
+        timestamp,
+        server_address,
+        player_name,
+        client_id,
+        client_version,
+    })
+}
+
 struct Reader<'a> {
     data: &'a [u8],
     offset: usize,
@@ -939,6 +1051,25 @@ fn write_dev_auth_result(server_address: &str, client_id: i16, success: bool) ->
     out
 }
 
+fn sanitize_client_version(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut sanitized = String::new();
+    for ch in trimmed.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' ) {
+            sanitized.push(ch);
+        }
+        if sanitized.len() >= 31 {
+            break;
+        }
+    }
+
+    (!sanitized.is_empty()).then_some(sanitized)
+}
+
 fn validate_proof(shared_token: &str, data: &[u8]) -> bool {
     if data.len() < PROOF_SIZE {
         return false;
@@ -1013,6 +1144,23 @@ mod tests {
         out
     }
 
+    fn write_version_packet(secret: &str, version: &str) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_header(&mut out, PACKET_VERSION_ANNOUNCE);
+        out.extend_from_slice(&[1; 16]);
+        out.extend_from_slice(&[2; 16]);
+        out.extend_from_slice(&123u64.to_be_bytes());
+        write_string(&mut out, "127.0.0.1:8303");
+        write_string(&mut out, "dev");
+        out.extend_from_slice(&4i16.to_be_bytes());
+        write_string(&mut out, version);
+        let mut sha = Sha256::new();
+        sha.update(secret.as_bytes());
+        sha.update(&out);
+        out.extend_from_slice(&sha.finalize());
+        out
+    }
+
     #[test]
     fn parses_v1_presence_packet() {
         let packet = write_presence_packet(PACKET_JOIN, "shared");
@@ -1074,9 +1222,21 @@ mod tests {
                 last_seen: Instant::now(),
                 last_seen_unix: 10,
                 developer: true,
+                client_version: Some("1.7.1".to_string()),
             },
         );
         let json = state.snapshot_json();
         assert!(json.contains("\"developer\":true"));
+        assert!(json.contains("\"version\":\"1.7.1\""));
+    }
+
+    #[test]
+    fn parses_version_packet() {
+        let packet = write_version_packet("shared", "1.7.1");
+        let parsed = read_version_packet(&packet, PROOF_SIZE).unwrap();
+        assert!(validate_proof("shared", &packet));
+        assert_eq!(parsed.client_id, 4);
+        assert_eq!(parsed.player_name, "dev");
+        assert_eq!(parsed.client_version, "1.7.1");
     }
 }

@@ -2,6 +2,7 @@
 #include "client_indicator.h"
 
 #include "protocol.h"
+#include "../version.h"
 
 #include <base/logger.h>
 #include <base/system.h>
@@ -95,6 +96,8 @@ namespace
 			return "peer_dev_list";
 		case BestClientIndicator::PACKET_DEV_AUTH_RESULT:
 			return "dev_auth_result";
+		case BestClientIndicator::PACKET_VERSION_ANNOUNCE:
+			return "version_announce";
 		default:
 			return "unknown";
 		}
@@ -236,6 +239,46 @@ bool CClientIndicator::IsPlayerDeveloper(int ClientId) const
 		const CServerInfo::CClient &Client = Info.m_aClients[Index];
 		if(Client.m_BestClientDeveloper && str_comp(Client.m_aName, pPlayerName) == 0)
 			return true;
+	}
+
+	return false;
+}
+
+bool CClientIndicator::GetPlayerVersionLabel(int ClientId, char *pVersion, int VersionSize) const
+{
+	if(!pVersion || VersionSize <= 0)
+		return false;
+	pVersion[0] = '\0';
+
+	const CGameClient *pGameClient = GameClient();
+	if(pGameClient && pGameClient->m_BestClient.IsComponentDisabled(CBestClient::COMPONENT_OTHERS_CLIENT_INDICATOR))
+		return false;
+
+	if(Client()->State() != IClient::STATE_ONLINE || !g_Config.m_BcClientIndicator)
+		return false;
+
+	for(const int LocalId : GameClient()->m_aLocalIds)
+	{
+		if(LocalId >= 0 && ClientId == LocalId)
+		{
+			str_copy(pVersion, BESTCLIENT_VERSION, VersionSize);
+			return true;
+		}
+	}
+
+	const char *pPlayerName = PlayerNameForClient(ClientId);
+	if(pPlayerName[0] == '\0')
+		return false;
+
+	char aCurrentServerAddress[NETADDR_MAXSTRSIZE];
+	net_addr_str(&Client()->ServerAddress(), aCurrentServerAddress, sizeof(aCurrentServerAddress), true);
+	if(m_BrowserCache.GetPlayerVersion(aCurrentServerAddress, pPlayerName, pVersion, VersionSize))
+		return true;
+
+	if(IsPlayerBestClient(ClientId))
+	{
+		str_copy(pVersion, "under", VersionSize);
+		return true;
 	}
 
 	return false;
@@ -642,6 +685,38 @@ void CClientIndicator::SendDevAuthPacket(int ClientId)
 		ClientId, PlayerNameForClient(ClientId), CurrentGameServerAddress(), aServerAddr, (int)vPacket.size(), Sent);
 }
 
+void CClientIndicator::SendVersionPacket(int ClientId)
+{
+	if(!m_Socket || !m_HasServerAddr)
+		return;
+
+	const char *pSharedToken = EffectiveSharedToken();
+	if(pSharedToken[0] == '\0' || BESTCLIENT_VERSION[0] == '\0')
+		return;
+
+	std::vector<uint8_t> vPacket;
+	vPacket.reserve(256);
+	BestClientIndicator::WriteHeader(vPacket, BestClientIndicator::PACKET_VERSION_ANNOUNCE);
+	BestClientIndicator::WriteUuid(vPacket, m_ClientInstanceId);
+	CUuid Nonce = RandomUuid();
+	BestClientIndicator::WriteUuid(vPacket, Nonce);
+	BestClientIndicator::WriteU64(vPacket, (uint64_t)time_timestamp());
+	BestClientIndicator::WriteString(vPacket, CurrentGameServerAddress());
+	BestClientIndicator::WriteString(vPacket, PlayerNameForClient(ClientId));
+	BestClientIndicator::WriteS16(vPacket, (int16_t)ClientId);
+	BestClientIndicator::WriteString(vPacket, BESTCLIENT_VERSION);
+	BestClientIndicator::AppendProof(vPacket, pSharedToken);
+
+	if(g_Config.m_DbgClientIndicator >= 2)
+		DumpUdpPacketBytes("sent", m_ServerAddr, vPacket.data(), (int)vPacket.size());
+
+	const int Sent = net_udp_send(m_Socket, &m_ServerAddr, vPacket.data(), (int)vPacket.size());
+	char aServerAddr[NETADDR_MAXSTRSIZE];
+	net_addr_str(&m_ServerAddr, aServerAddr, sizeof(aServerAddr), true);
+	DebugLogF("sent %s packet client_id=%d version='%s' player='%s' game_server=%s indicator_server=%s bytes=%d result=%d",
+		PacketTypeName(BestClientIndicator::PACKET_VERSION_ANNOUNCE), ClientId, BESTCLIENT_VERSION, PlayerNameForClient(ClientId), CurrentGameServerAddress(), aServerAddr, (int)vPacket.size(), Sent);
+}
+
 void CClientIndicator::SendLeaveForAll()
 {
 	if(!m_Socket || !m_HasServerAddr)
@@ -705,7 +780,10 @@ void CClientIndicator::ProcessIncomingPackets(bool Force)
 		{
 			DebugLogF("received peer_state client_id=%d player='%s' server=%s", PeerState.m_ClientId, PeerState.m_PlayerName.c_str(), PeerState.m_ServerAddress.c_str());
 			if(PeerState.m_ServerAddress == m_PresenceCache.ServerAddress())
+			{
 				m_PresenceCache.SetPresent(PeerState.m_ClientId, true);
+				SchedulePresenceBrowserRefresh();
+			}
 			continue;
 		}
 
@@ -716,6 +794,7 @@ void CClientIndicator::ProcessIncomingPackets(bool Force)
 			{
 				m_PresenceCache.SetPresent(PeerState.m_ClientId, false);
 				m_DeveloperClientIds.erase(PeerState.m_ClientId);
+				SchedulePresenceBrowserRefresh();
 			}
 			continue;
 		}
@@ -726,6 +805,7 @@ void CClientIndicator::ProcessIncomingPackets(bool Force)
 		{
 			DebugLogF("received peer_list server=%s count=%llu", PeerList.m_ServerAddress.c_str(), (unsigned long long)PeerList.m_vClientIds.size());
 			m_PresenceCache.Replace(PeerList.m_vClientIds);
+			SchedulePresenceBrowserRefresh();
 			continue;
 		}
 
@@ -802,6 +882,7 @@ void CClientIndicator::SyncLocalRegistrations(bool Force)
 		if(m_RegisteredClientIds.find(ClientId) == m_RegisteredClientIds.end())
 		{
 			SendPresencePacket(ClientId, BestClientIndicator::PACKET_JOIN);
+			SendVersionPacket(ClientId);
 			SendDevAuthPacket(ClientId);
 			m_RegisteredClientIds.insert(ClientId);
 			m_PresenceCache.SetPresent(ClientId, true);
@@ -888,6 +969,7 @@ void CClientIndicator::UpdatePresence()
 		for(const int ClientId : m_RegisteredClientIds)
 		{
 			SendPresencePacket(ClientId, BestClientIndicator::PACKET_HEARTBEAT);
+			SendVersionPacket(ClientId);
 			if(SendDevAuth)
 				SendDevAuthPacket(ClientId);
 		}

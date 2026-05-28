@@ -261,6 +261,7 @@ MACRO_CONFIG_INT(BcClientIndicatorInNamePlate, bc_client_indicator_in_name_plate
 MACRO_CONFIG_INT(BcClientIndicatorInNamePlateAboveSelf, bc_client_indicator_in_name_plate_above_self, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Show client indicator above self")
 MACRO_CONFIG_INT(BcClientIndicatorInNamePlateSize, bc_client_indicator_in_name_plate_size, 30, -50, 100, CFGFLAG_SAVE | CFGFLAG_CLIENT, "Client indicator in name plate size")
 MACRO_CONFIG_INT(BcClientIndicatorInNamePlateDynamic, bc_client_indicator_in_name_plate_dynamic, 1, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Client indicator in nameplates will dynamically change pos")
+MACRO_CONFIG_INT(IndicatorVersion, indicator_version, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Show BestClient version in name plates")
 MACRO_CONFIG_INT(BcClientIndicatorInScoreboard, bc_client_indicator_in_scoreboard, 1, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Show client indicator in name plate")
 MACRO_CONFIG_INT(BcClientIndicatorInSoreboardSize, bc_client_indicator_in_scoreboard_size, 100, -50, 100, CFGFLAG_SAVE | CFGFLAG_CLIENT, "Client indicator in name plate size")
 MACRO_CONFIG_STR(BcClientIndicatorServerAddress, bc_client_indicator_server_address, 256, "150.241.70.188:8778", CFGFLAG_CLIENT | CFGFLAG_SAVE, "Client indicator UDP presence server")

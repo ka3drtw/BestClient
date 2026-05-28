@@ -48,7 +48,7 @@ TEST(ClientIndicator, CollectActiveLocalClientIdsDeduplicatesLocalSlots)
 
 TEST(ClientIndicator, BrowserCacheParsesDeveloperFlag)
 {
-	json_value *pJson = ParseJson(R"([{"server_address":"127.0.0.1:8303","players":[{"name":"dev","developer":true},{"name":"user"}]}])");
+	json_value *pJson = ParseJson(R"([{"server_address":"127.0.0.1:8303","players":[{"name":"dev","developer":true,"version":"1.7.1"},{"name":"user"}]}])");
 	ASSERT_TRUE(pJson);
 
 	CBrowserCache Cache;
@@ -65,6 +65,9 @@ TEST(ClientIndicator, BrowserCacheParsesDeveloperFlag)
 	bool Developer = false;
 	EXPECT_TRUE(Cache.HasPlayer("127.0.0.1:8303", "dev", &Developer));
 	EXPECT_TRUE(Developer);
+	char aVersion[32];
+	EXPECT_TRUE(Cache.GetPlayerVersion("127.0.0.1:8303", "dev", aVersion, sizeof(aVersion)));
+	EXPECT_STREQ(aVersion, "1.7.1");
 
 	const auto UserIt = std::find_if(Players.begin(), Players.end(), [](const IServerBrowser::CBestClientPlayerEntry &Entry) {
 		return str_comp(Entry.m_aName, "user") == 0;
@@ -74,6 +77,7 @@ TEST(ClientIndicator, BrowserCacheParsesDeveloperFlag)
 	Developer = true;
 	EXPECT_TRUE(Cache.HasPlayer("127.0.0.1:8303", "user", &Developer));
 	EXPECT_FALSE(Developer);
+	EXPECT_FALSE(Cache.GetPlayerVersion("127.0.0.1:8303", "user", aVersion, sizeof(aVersion)));
 }
 
 TEST(ClientIndicator, BrowserCacheKeepsLegacyJsonNonDeveloper)
@@ -150,4 +154,29 @@ TEST(ClientIndicator, DevAuthPacketHmacRoundTrips)
 	EXPECT_EQ(Packet.m_ServerAddress, "127.0.0.1:8303");
 	EXPECT_TRUE(BestClientIndicator::ValidateHmacSha256("dev-secret", vPacket.data(), (int)vPacket.size()));
 	EXPECT_FALSE(BestClientIndicator::ValidateHmacSha256("wrong", vPacket.data(), (int)vPacket.size()));
+}
+
+TEST(ClientIndicator, VersionPacketProofRoundTrips)
+{
+	std::vector<uint8_t> vPacket;
+	CUuid InstanceId = UUID_ZEROED;
+	CUuid Nonce = UUID_ZEROED;
+	Nonce.m_aData[0] = 7;
+	BestClientIndicator::WriteHeader(vPacket, BestClientIndicator::PACKET_VERSION_ANNOUNCE);
+	BestClientIndicator::WriteUuid(vPacket, InstanceId);
+	BestClientIndicator::WriteUuid(vPacket, Nonce);
+	BestClientIndicator::WriteU64(vPacket, 456);
+	BestClientIndicator::WriteString(vPacket, "127.0.0.1:8303");
+	BestClientIndicator::WriteString(vPacket, "user");
+	BestClientIndicator::WriteS16(vPacket, 5);
+	BestClientIndicator::WriteString(vPacket, "1.7.1");
+	BestClientIndicator::AppendProof(vPacket, "shared");
+
+	BestClientIndicator::CClientVersionPacket Packet;
+	ASSERT_TRUE(BestClientIndicator::ReadClientVersionPacket(vPacket.data(), (int)vPacket.size(), Packet));
+	EXPECT_TRUE(BestClientIndicator::ValidateProof("shared", vPacket.data(), (int)vPacket.size()));
+	EXPECT_FALSE(BestClientIndicator::ValidateProof("wrong", vPacket.data(), (int)vPacket.size()));
+	EXPECT_EQ(Packet.m_ClientId, 5);
+	EXPECT_EQ(Packet.m_PlayerName, "user");
+	EXPECT_EQ(Packet.m_ClientVersion, "1.7.1");
 }

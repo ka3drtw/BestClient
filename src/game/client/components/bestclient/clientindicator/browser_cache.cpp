@@ -12,7 +12,13 @@
 
 namespace
 {
-using TParsedPlayers = std::unordered_map<std::string, std::unordered_map<std::string, bool>>;
+struct CParsedPlayerInfo
+{
+	bool m_Developer = false;
+	std::string m_Version;
+};
+
+using TParsedPlayers = std::unordered_map<std::string, std::unordered_map<std::string, CParsedPlayerInfo>>;
 
 static const char *GetStringField(const json_value &Json, const char *pField)
 {
@@ -24,6 +30,12 @@ static bool GetBoolField(const json_value &Json, const char *pField)
 {
 	const json_value &Field = Json[pField];
 	return Field.type == json_boolean && Field.u.boolean != 0;
+}
+
+static const char *GetOptionalStringField(const json_value &Json, const char *pField)
+{
+	const json_value &Field = Json[pField];
+	return Field.type == json_string ? Field.u.string.ptr : nullptr;
 }
 
 static bool NormalizeServerAddress(const char *pAddress, char *pBuffer, int BufferSize)
@@ -55,7 +67,7 @@ static bool NormalizeServerAddress(const char *pAddress, char *pBuffer, int Buff
 	return true;
 }
 
-static void AddPlayer(TParsedPlayers &Map, const char *pServerAddress, const char *pName, bool Developer = false)
+static void AddPlayer(TParsedPlayers &Map, const char *pServerAddress, const char *pName, bool Developer = false, const char *pVersion = nullptr)
 {
 	if(!pServerAddress || !pName || pServerAddress[0] == '\0' || pName[0] == '\0')
 		return;
@@ -64,8 +76,10 @@ static void AddPlayer(TParsedPlayers &Map, const char *pServerAddress, const cha
 	if(!NormalizeServerAddress(pServerAddress, aNormalizedAddress, sizeof(aNormalizedAddress)))
 		return;
 
-	bool &ExistingDeveloper = Map[aNormalizedAddress][pName];
-	ExistingDeveloper = ExistingDeveloper || Developer;
+	CParsedPlayerInfo &Info = Map[aNormalizedAddress][pName];
+	Info.m_Developer = Info.m_Developer || Developer;
+	if(pVersion && pVersion[0] != '\0' && Info.m_Version.empty())
+		Info.m_Version = pVersion;
 }
 
 static void ParsePlayerObject(TParsedPlayers &Map, const char *pServerAddress, const json_value &Player)
@@ -73,15 +87,16 @@ static void ParsePlayerObject(TParsedPlayers &Map, const char *pServerAddress, c
 	if(Player.type != json_object)
 		return;
 	const bool Developer = GetBoolField(Player, "developer");
+	const char *pVersion = GetOptionalStringField(Player, "version");
 
 	if(const char *pName = GetStringField(Player, "name"))
 	{
-		AddPlayer(Map, pServerAddress, pName, Developer);
+		AddPlayer(Map, pServerAddress, pName, Developer, pVersion);
 		return;
 	}
 	if(const char *pName = GetStringField(Player, "player_name"))
 	{
-		AddPlayer(Map, pServerAddress, pName, Developer);
+		AddPlayer(Map, pServerAddress, pName, Developer, pVersion);
 		return;
 	}
 
@@ -91,7 +106,7 @@ static void ParsePlayerObject(TParsedPlayers &Map, const char *pServerAddress, c
 		if(Entry.value->type == json_object)
 		{
 			if(const char *pName = GetStringField(*Entry.value, "name"))
-				AddPlayer(Map, pServerAddress, pName, GetBoolField(*Entry.value, "developer"));
+				AddPlayer(Map, pServerAddress, pName, GetBoolField(*Entry.value, "developer"), GetOptionalStringField(*Entry.value, "version"));
 		}
 		else if(Entry.value->type == json_string)
 		{
@@ -167,6 +182,7 @@ bool CBrowserCache::Load(const json_value &Json)
 	}
 
 	m_vPlayers.clear();
+	m_PlayerVersionsByServer.clear();
 	for(const auto &ServerEntry : Parsed)
 	{
 		for(const auto &Name : ServerEntry.second)
@@ -175,7 +191,9 @@ bool CBrowserCache::Load(const json_value &Json)
 			mem_zero(&Entry, sizeof(Entry));
 			str_copy(Entry.m_aServerAddress, ServerEntry.first.c_str(), sizeof(Entry.m_aServerAddress));
 			str_copy(Entry.m_aName, Name.first.c_str(), sizeof(Entry.m_aName));
-			Entry.m_Developer = Name.second;
+			Entry.m_Developer = Name.second.m_Developer;
+			if(!Name.second.m_Version.empty())
+				m_PlayerVersionsByServer[ServerEntry.first][Name.first] = Name.second.m_Version;
 			m_vPlayers.push_back(Entry);
 		}
 	}
@@ -206,4 +224,28 @@ bool CBrowserCache::HasPlayer(const char *pServerAddress, const char *pName, boo
 	if(pDeveloper)
 		*pDeveloper = Developer;
 	return Found;
+}
+
+bool CBrowserCache::GetPlayerVersion(const char *pServerAddress, const char *pName, char *pVersion, int VersionSize) const
+{
+	if(!pVersion || VersionSize <= 0)
+		return false;
+	pVersion[0] = '\0';
+	if(!pServerAddress || !pName || pServerAddress[0] == '\0' || pName[0] == '\0')
+		return false;
+
+	char aNormalizedAddress[MAX_SERVER_ADDRESSES * NETADDR_MAXSTRSIZE];
+	if(!NormalizeServerAddress(pServerAddress, aNormalizedAddress, sizeof(aNormalizedAddress)))
+		return false;
+
+	const auto ServerIt = m_PlayerVersionsByServer.find(aNormalizedAddress);
+	if(ServerIt == m_PlayerVersionsByServer.end())
+		return false;
+
+	const auto PlayerIt = ServerIt->second.find(pName);
+	if(PlayerIt == ServerIt->second.end() || PlayerIt->second.empty())
+		return false;
+
+	str_copy(pVersion, PlayerIt->second.c_str(), VersionSize);
+	return true;
 }

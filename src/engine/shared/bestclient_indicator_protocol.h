@@ -31,6 +31,7 @@ enum EPacketType : uint8_t
 	PACKET_PEER_DEV_STATE = 8,
 	PACKET_PEER_DEV_LIST = 9,
 	PACKET_DEV_AUTH_RESULT = 10,
+	PACKET_VERSION_ANNOUNCE = 11,
 };
 
 struct CClientPresencePacket
@@ -65,6 +66,17 @@ struct CDevAuthResult
 	bool m_Success = false;
 };
 
+struct CClientVersionPacket
+{
+	CUuid m_ClientInstanceId = UUID_ZEROED;
+	CUuid m_Nonce = UUID_ZEROED;
+	uint64_t m_Timestamp = 0;
+	std::string m_ServerAddress;
+	std::string m_PlayerName;
+	int m_ClientId = -1;
+	std::string m_ClientVersion;
+};
+
 void WriteU8(std::vector<uint8_t> &vOut, uint8_t Value);
 void WriteU16(std::vector<uint8_t> &vOut, uint16_t Value);
 void WriteS16(std::vector<uint8_t> &vOut, int16_t Value);
@@ -93,6 +105,7 @@ bool ParseAddress(const char *pAddress, int DefaultPort, NETADDR &Out);
 
 bool ReadClientPresencePacket(const uint8_t *pData, int DataSize, CClientPresencePacket &Out);
 bool ReadDevAuthPacket(const uint8_t *pData, int DataSize, CClientPresencePacket &Out);
+bool ReadClientVersionPacket(const uint8_t *pData, int DataSize, CClientVersionPacket &Out);
 
 bool ReadPeerStatePacket(const uint8_t *pData, int DataSize, CPeerState &Out);
 bool ReadPeerRemovePacket(const uint8_t *pData, int DataSize, CPeerState &Out);

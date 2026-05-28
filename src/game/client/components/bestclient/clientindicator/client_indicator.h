@@ -32,6 +32,7 @@ public:
 	bool IsPlayerBestClient(int ClientId) const;
 	bool IsPlayerBClient(int ClientId) { return IsPlayerBestClient(ClientId); }
 	bool IsPlayerDeveloper(int ClientId) const;
+	bool GetPlayerVersionLabel(int ClientId, char *pVersion, int VersionSize) const;
 
 	void RefreshBrowserCache(bool Force);
 	void RefreshToken(bool Force);
@@ -78,6 +79,7 @@ private:
 	void SyncLocalRegistrations(bool Force = false);
 	void SendPresencePacket(int ClientId, int PacketType);
 	void SendDevAuthPacket(int ClientId);
+	void SendVersionPacket(int ClientId);
 	void SendLeaveForAll();
 	const char *CurrentGameServerAddress();
 	const char *PlayerNameForClient(int ClientId) const;

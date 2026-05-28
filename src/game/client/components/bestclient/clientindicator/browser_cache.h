@@ -4,6 +4,8 @@
 
 #include <engine/serverbrowser.h>
 
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 typedef struct _json_value json_value;
@@ -11,12 +13,18 @@ typedef struct _json_value json_value;
 class CBrowserCache
 {
 	std::vector<IServerBrowser::CBestClientPlayerEntry> m_vPlayers;
+	std::unordered_map<std::string, std::unordered_map<std::string, std::string>> m_PlayerVersionsByServer;
 
 public:
 	bool Load(const json_value &Json);
-	void Clear() { m_vPlayers.clear(); }
+	void Clear()
+	{
+		m_vPlayers.clear();
+		m_PlayerVersionsByServer.clear();
+	}
 	const std::vector<IServerBrowser::CBestClientPlayerEntry> &Players() const { return m_vPlayers; }
 	bool HasPlayer(const char *pServerAddress, const char *pName, bool *pDeveloper = nullptr) const;
+	bool GetPlayerVersion(const char *pServerAddress, const char *pName, char *pVersion, int VersionSize) const;
 };
 
 #endif
