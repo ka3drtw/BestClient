@@ -9,10 +9,10 @@
 
 #include <game/client/animstate.h>
 #include <game/client/gameclient.h>
-#include <game/client/projectile_data.h>
 #include <game/client/prediction/entities/character.h>
 #include <game/client/prediction/entities/laser.h>
 #include <game/client/prediction/entities/projectile.h>
+#include <game/client/projectile_data.h>
 #include <game/gamecore.h>
 #include <game/mapitems.h>
 
@@ -24,182 +24,182 @@
 
 namespace
 {
-void NeutralizeInput(CNetObj_PlayerInput &Input)
-{
-	Input.m_Direction = 0;
-	Input.m_Jump = 0;
-	Input.m_Hook = 0;
-
-	if((Input.m_Fire & 1) != 0)
-		Input.m_Fire++;
-	Input.m_Fire &= INPUT_STATE_MASK;
-
-	Input.m_NextWeapon = 0;
-	Input.m_PrevWeapon = 0;
-	Input.m_WantedWeapon = 0;
-
-	if(Input.m_TargetX == 0 && Input.m_TargetY == 0)
+	void NeutralizeInput(CNetObj_PlayerInput &Input)
 	{
-		Input.m_TargetX = 1;
-		Input.m_TargetY = 0;
+		Input.m_Direction = 0;
+		Input.m_Jump = 0;
+		Input.m_Hook = 0;
+
+		if((Input.m_Fire & 1) != 0)
+			Input.m_Fire++;
+		Input.m_Fire &= INPUT_STATE_MASK;
+
+		Input.m_NextWeapon = 0;
+		Input.m_PrevWeapon = 0;
+		Input.m_WantedWeapon = 0;
+
+		if(Input.m_TargetX == 0 && Input.m_TargetY == 0)
+		{
+			Input.m_TargetX = 1;
+			Input.m_TargetY = 0;
+		}
 	}
-}
 
-int ReleasedFireState(int FireState)
-{
-	FireState &= INPUT_STATE_MASK;
-	if((FireState & 1) != 0)
-		FireState = (FireState + 1) & INPUT_STATE_MASK;
-	return FireState;
-}
-
-float EffectiveFastInputOffsetTicks(const CGameClient *pGameClient)
-{
-	if(!g_Config.m_TcFastInput)
-		return 0.0f;
-
-	if(g_Config.m_BcFastInputMode == 0)
+	int ReleasedFireState(int FireState)
 	{
-		if(g_Config.m_TcFastInputAmount <= 0)
+		FireState &= INPUT_STATE_MASK;
+		if((FireState & 1) != 0)
+			FireState = (FireState + 1) & INPUT_STATE_MASK;
+		return FireState;
+	}
+
+	float EffectiveFastInputOffsetTicks(const CGameClient *pGameClient)
+	{
+		if(!g_Config.m_TcFastInput)
 			return 0.0f;
-		return g_Config.m_TcFastInputAmount / 20.0f;
-	}
 
-	if(BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 1)
-	{
-		if(g_Config.m_BcFastInputDeltaInput <= 0)
+		if(g_Config.m_BcFastInputMode == 0)
+		{
+			if(g_Config.m_TcFastInputAmount <= 0)
+				return 0.0f;
+			return g_Config.m_TcFastInputAmount / 20.0f;
+		}
+
+		if(BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 1)
+		{
+			if(g_Config.m_BcFastInputDeltaInput <= 0)
+				return 0.0f;
+			return g_Config.m_BcFastInputDeltaInput / 100.0f;
+		}
+
+		if(BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 4)
+		{
+			if(g_Config.m_BcSaikoPlusAmount <= 0)
+				return 0.0f;
+			return g_Config.m_BcSaikoPlusAmount / 100.0f;
+		}
+
+		const CGameClient::SBestInputSettings Settings = pGameClient->BestInputSettings();
+		if(Settings.m_Offset <= 0)
 			return 0.0f;
-		return g_Config.m_BcFastInputDeltaInput / 100.0f;
+
+		float Offset = Settings.m_Offset / 100.0f;
+		if(Settings.m_Smoothing > 0)
+		{
+			float SmoothFactor = 1.0f - (Settings.m_Smoothing / 200.0f);
+			Offset *= SmoothFactor;
+		}
+		if(Settings.m_LatencyComp > 0)
+		{
+			float CompFactor = 1.0f + (Settings.m_LatencyComp / 100.0f);
+			Offset *= CompFactor;
+		}
+		return Offset;
 	}
 
-	if(BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 4)
+	int FastInputPredictionTicks(float OffsetTicks)
 	{
-		if(g_Config.m_BcSaikoPlusAmount <= 0)
-			return 0.0f;
-		return g_Config.m_BcSaikoPlusAmount / 100.0f;
+		if(OffsetTicks <= 0.0f)
+			return 0;
+		if(BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 4)
+			return (int)std::ceil(OffsetTicks + 1.0f);
+		return (int)std::ceil(OffsetTicks);
 	}
 
-	const CGameClient::SBestInputSettings Settings = pGameClient->BestInputSettings();
-	if(Settings.m_Offset <= 0)
-		return 0.0f;
-
-	float Offset = Settings.m_Offset / 100.0f;
-	if(Settings.m_Smoothing > 0)
+	bool EffectiveFastInputOthers()
 	{
-		float SmoothFactor = 1.0f - (Settings.m_Smoothing / 200.0f);
-		Offset *= SmoothFactor;
+		const int FastInputMode = BcFastInputNormalizedMode(g_Config.m_BcFastInputMode);
+		if(FastInputMode == 0)
+			return g_Config.m_TcFastInputOthers != 0;
+		if(FastInputMode == 1)
+			return g_Config.m_BcDeltaInputOthers != 0;
+		if(FastInputMode == 4)
+			return g_Config.m_BcSaikoPlusOthers != 0;
+		return g_Config.m_BcBestInputOthers != 0;
 	}
-	if(Settings.m_LatencyComp > 0)
+
+	bool IsFrozenState(const CCharacter *pChar)
 	{
-		float CompFactor = 1.0f + (Settings.m_LatencyComp / 100.0f);
-		Offset *= CompFactor;
+		if(!pChar)
+			return false;
+		const CCharacterCore &Core = *pChar->Core();
+		return pChar->m_FreezeTime > 0 || Core.m_DeepFrozen || Core.m_LiveFrozen || Core.m_FreezeEnd != 0;
 	}
-	return Offset;
-}
 
-int FastInputPredictionTicks(float OffsetTicks)
-{
-	if(OffsetTicks <= 0.0f)
-		return 0;
-	if(BcFastInputNormalizedMode(g_Config.m_BcFastInputMode) == 4)
-		return (int)std::ceil(OffsetTicks + 1.0f);
-	return (int)std::ceil(OffsetTicks);
-}
-
-bool EffectiveFastInputOthers()
-{
-	const int FastInputMode = BcFastInputNormalizedMode(g_Config.m_BcFastInputMode);
-	if(FastInputMode == 0)
-		return g_Config.m_TcFastInputOthers != 0;
-	if(FastInputMode == 1)
-		return g_Config.m_BcDeltaInputOthers != 0;
-	if(FastInputMode == 4)
-		return g_Config.m_BcSaikoPlusOthers != 0;
-	return g_Config.m_BcBestInputOthers != 0;
-}
-
-bool IsFrozenState(const CCharacter *pChar)
-{
-	if(!pChar)
-		return false;
-	const CCharacterCore &Core = *pChar->Core();
-	return pChar->m_FreezeTime > 0 || Core.m_DeepFrozen || Core.m_LiveFrozen || Core.m_FreezeEnd != 0;
-}
-
-int ClampWeaponId(int WeaponId)
-{
-	return std::clamp(WeaponId, -1, NUM_WEAPONS - 1);
-}
-
-struct STrackedProjectile
-{
-	int m_Owner = -1;
-	int m_StartTick = 0;
-	int m_Type = WEAPON_GUN;
-	int m_TuneZone = 0;
-	vec2 m_StartPos = vec2(0.0f, 0.0f);
-	vec2 m_StartVel = vec2(0.0f, 0.0f);
-};
-
-bool SameProjectile(const STrackedProjectile &A, const STrackedProjectile &B)
-{
-	return A.m_Owner == B.m_Owner &&
-		A.m_StartTick == B.m_StartTick &&
-		A.m_Type == B.m_Type &&
-		A.m_TuneZone == B.m_TuneZone &&
-		distance(A.m_StartPos, B.m_StartPos) < 0.01f &&
-		distance(A.m_StartVel, B.m_StartVel) < 0.01f;
-}
-
-bool IsTrackedExplosive(const CProjectileData &Data, int LocalClientId, int DummyClientId)
-{
-	const bool PracticeOwned = Data.m_Owner == LocalClientId || (DummyClientId >= 0 && Data.m_Owner == DummyClientId);
-	return PracticeOwned && (Data.m_Explosive || Data.m_Type == WEAPON_GRENADE);
-}
-
-void CollectTrackedProjectiles(CGameWorld &World, int LocalClientId, int DummyClientId, std::vector<STrackedProjectile> &vOut)
-{
-	vOut.clear();
-	for(auto *pProj = (CProjectile *)World.FindFirst(CGameWorld::ENTTYPE_PROJECTILE); pProj; pProj = (CProjectile *)pProj->TypeNext())
+	int ClampWeaponId(int WeaponId)
 	{
-		const CProjectileData Data = pProj->GetData();
-		if(!IsTrackedExplosive(Data, LocalClientId, DummyClientId))
-			continue;
-
-		STrackedProjectile Proj;
-		Proj.m_Owner = Data.m_Owner;
-		Proj.m_StartTick = Data.m_StartTick;
-		Proj.m_Type = Data.m_Type;
-		Proj.m_TuneZone = Data.m_TuneZone;
-		Proj.m_StartPos = Data.m_StartPos;
-		Proj.m_StartVel = Data.m_StartVel;
-		vOut.push_back(Proj);
-	}
-}
-
-vec2 CalcTrackedProjectilePos(const STrackedProjectile &Proj, int Tick, int TickSpeed, const CTuningParams *pTuning)
-{
-	float Curvature = 0.0f;
-	float Speed = 0.0f;
-	if(Proj.m_Type == WEAPON_GRENADE)
-	{
-		Curvature = pTuning->m_GrenadeCurvature;
-		Speed = pTuning->m_GrenadeSpeed;
-	}
-	else if(Proj.m_Type == WEAPON_SHOTGUN)
-	{
-		Curvature = pTuning->m_ShotgunCurvature;
-		Speed = pTuning->m_ShotgunSpeed;
-	}
-	else
-	{
-		Curvature = pTuning->m_GunCurvature;
-		Speed = pTuning->m_GunSpeed;
+		return std::clamp(WeaponId, -1, NUM_WEAPONS - 1);
 	}
 
-	const float Ct = std::max(0.0f, (Tick - Proj.m_StartTick) / (float)TickSpeed);
-	return CalcPos(Proj.m_StartPos, Proj.m_StartVel, Curvature, Speed, Ct);
-}
+	struct STrackedProjectile
+	{
+		int m_Owner = -1;
+		int m_StartTick = 0;
+		int m_Type = WEAPON_GUN;
+		int m_TuneZone = 0;
+		vec2 m_StartPos = vec2(0.0f, 0.0f);
+		vec2 m_StartVel = vec2(0.0f, 0.0f);
+	};
+
+	bool SameProjectile(const STrackedProjectile &A, const STrackedProjectile &B)
+	{
+		return A.m_Owner == B.m_Owner &&
+		       A.m_StartTick == B.m_StartTick &&
+		       A.m_Type == B.m_Type &&
+		       A.m_TuneZone == B.m_TuneZone &&
+		       distance(A.m_StartPos, B.m_StartPos) < 0.01f &&
+		       distance(A.m_StartVel, B.m_StartVel) < 0.01f;
+	}
+
+	bool IsTrackedExplosive(const CProjectileData &Data, int LocalClientId, int DummyClientId)
+	{
+		const bool PracticeOwned = Data.m_Owner == LocalClientId || (DummyClientId >= 0 && Data.m_Owner == DummyClientId);
+		return PracticeOwned && (Data.m_Explosive || Data.m_Type == WEAPON_GRENADE);
+	}
+
+	void CollectTrackedProjectiles(CGameWorld &World, int LocalClientId, int DummyClientId, std::vector<STrackedProjectile> &vOut)
+	{
+		vOut.clear();
+		for(auto *pProj = (CProjectile *)World.FindFirst(CGameWorld::ENTTYPE_PROJECTILE); pProj; pProj = (CProjectile *)pProj->TypeNext())
+		{
+			const CProjectileData Data = pProj->GetData();
+			if(!IsTrackedExplosive(Data, LocalClientId, DummyClientId))
+				continue;
+
+			STrackedProjectile Proj;
+			Proj.m_Owner = Data.m_Owner;
+			Proj.m_StartTick = Data.m_StartTick;
+			Proj.m_Type = Data.m_Type;
+			Proj.m_TuneZone = Data.m_TuneZone;
+			Proj.m_StartPos = Data.m_StartPos;
+			Proj.m_StartVel = Data.m_StartVel;
+			vOut.push_back(Proj);
+		}
+	}
+
+	vec2 CalcTrackedProjectilePos(const STrackedProjectile &Proj, int Tick, int TickSpeed, const CTuningParams *pTuning)
+	{
+		float Curvature = 0.0f;
+		float Speed = 0.0f;
+		if(Proj.m_Type == WEAPON_GRENADE)
+		{
+			Curvature = pTuning->m_GrenadeCurvature;
+			Speed = pTuning->m_GrenadeSpeed;
+		}
+		else if(Proj.m_Type == WEAPON_SHOTGUN)
+		{
+			Curvature = pTuning->m_ShotgunCurvature;
+			Speed = pTuning->m_ShotgunSpeed;
+		}
+		else
+		{
+			Curvature = pTuning->m_GunCurvature;
+			Speed = pTuning->m_GunSpeed;
+		}
+
+		const float Ct = std::max(0.0f, (Tick - Proj.m_StartTick) / (float)TickSpeed);
+		return CalcPos(Proj.m_StartPos, Proj.m_StartVel, Curvature, Speed, Ct);
+	}
 } // namespace
 
 void CFastPractice::ConFastPracticeToggle(IConsole::IResult *pResult, void *pUserData)
@@ -362,7 +362,7 @@ bool CFastPractice::ResolvePracticeRoles(int &LocalClientId, int &DummyClientId)
 	if(LocalClientId < 0)
 	{
 		const bool Spectating = GameClient()->m_Snap.m_SpecInfo.m_Active ||
-			(GameClient()->m_Snap.m_pLocalInfo && GameClient()->m_Snap.m_pLocalInfo->m_Team == TEAM_SPECTATORS);
+					(GameClient()->m_Snap.m_pLocalInfo && GameClient()->m_Snap.m_pLocalInfo->m_Team == TEAM_SPECTATORS);
 		if(Spectating)
 			LocalClientId = m_EnableLocalClientId;
 	}
@@ -389,7 +389,7 @@ int CFastPractice::CurrentPracticeDummyId() const
 	if(!m_Enabled || !m_RequireDummy)
 		return -1;
 	const bool Spectating = GameClient()->m_Snap.m_SpecInfo.m_Active ||
-		(GameClient()->m_Snap.m_pLocalInfo && GameClient()->m_Snap.m_pLocalInfo->m_Team == TEAM_SPECTATORS);
+				(GameClient()->m_Snap.m_pLocalInfo && GameClient()->m_Snap.m_pLocalInfo->m_Team == TEAM_SPECTATORS);
 	if(Spectating)
 		return -1;
 
@@ -413,28 +413,28 @@ bool CFastPractice::IsPracticeDummy(int ClientId) const
 bool CFastPractice::ForcePredictWeapons() const
 {
 	const bool Spectating = GameClient()->m_Snap.m_SpecInfo.m_Active ||
-		(GameClient()->m_Snap.m_pLocalInfo && GameClient()->m_Snap.m_pLocalInfo->m_Team == TEAM_SPECTATORS);
+				(GameClient()->m_Snap.m_pLocalInfo && GameClient()->m_Snap.m_pLocalInfo->m_Team == TEAM_SPECTATORS);
 	return m_Enabled && !Spectating;
 }
 
 bool CFastPractice::ForcePredictGrenade() const
 {
 	const bool Spectating = GameClient()->m_Snap.m_SpecInfo.m_Active ||
-		(GameClient()->m_Snap.m_pLocalInfo && GameClient()->m_Snap.m_pLocalInfo->m_Team == TEAM_SPECTATORS);
+				(GameClient()->m_Snap.m_pLocalInfo && GameClient()->m_Snap.m_pLocalInfo->m_Team == TEAM_SPECTATORS);
 	return m_Enabled && !Spectating;
 }
 
 bool CFastPractice::ForcePredictGunfire() const
 {
 	const bool Spectating = GameClient()->m_Snap.m_SpecInfo.m_Active ||
-		(GameClient()->m_Snap.m_pLocalInfo && GameClient()->m_Snap.m_pLocalInfo->m_Team == TEAM_SPECTATORS);
+				(GameClient()->m_Snap.m_pLocalInfo && GameClient()->m_Snap.m_pLocalInfo->m_Team == TEAM_SPECTATORS);
 	return m_Enabled && !Spectating;
 }
 
 bool CFastPractice::ForcePredictPlayers() const
 {
 	const bool Spectating = GameClient()->m_Snap.m_SpecInfo.m_Active ||
-		(GameClient()->m_Snap.m_pLocalInfo && GameClient()->m_Snap.m_pLocalInfo->m_Team == TEAM_SPECTATORS);
+				(GameClient()->m_Snap.m_pLocalInfo && GameClient()->m_Snap.m_pLocalInfo->m_Team == TEAM_SPECTATORS);
 	return m_Enabled && !Spectating;
 }
 
@@ -888,12 +888,12 @@ bool CFastPractice::AdvanceBaseWorldToTick(int TargetTick, int LocalClientId, in
 		CNetObj_PlayerInput *pDummyInputData = pDummyChar ? (CNetObj_PlayerInput *)Client()->GetInput(Tick, DummyInputConn) : nullptr;
 		CNetObj_PlayerInput LocalSuppressedInput = {};
 		CNetObj_PlayerInput DummySuppressedInput = {};
-			const bool SuppressTransitionTick = Tick == FirstBaseTick && m_SuppressFireOnNextPredictTick;
-			const bool SuppressCooldownTick = Tick >= FirstBaseTick && m_InputSuppressTicks > 0;
-			if(SuppressTransitionTick || SuppressCooldownTick)
+		const bool SuppressTransitionTick = Tick == FirstBaseTick && m_SuppressFireOnNextPredictTick;
+		const bool SuppressCooldownTick = Tick >= FirstBaseTick && m_InputSuppressTicks > 0;
+		if(SuppressTransitionTick || SuppressCooldownTick)
+		{
+			if(pInputData)
 			{
-				if(pInputData)
-				{
 				LocalSuppressedInput = *pInputData;
 				LocalSuppressedInput.m_Fire = ReleasedFireState(pLocalChar->LatestInput()->m_Fire);
 				LocalSuppressedInput.m_WantedWeapon = 0;
@@ -908,12 +908,12 @@ bool CFastPractice::AdvanceBaseWorldToTick(int TargetTick, int LocalClientId, in
 				DummySuppressedInput.m_WantedWeapon = 0;
 				DummySuppressedInput.m_NextWeapon = 0;
 				DummySuppressedInput.m_PrevWeapon = 0;
-					pDummyInputData = &DummySuppressedInput;
-				}
-				if(m_InputSuppressTicks > 0)
-					m_InputSuppressTicks--;
-				m_SuppressFireOnNextPredictTick = false;
+				pDummyInputData = &DummySuppressedInput;
 			}
+			if(m_InputSuppressTicks > 0)
+				m_InputSuppressTicks--;
+			m_SuppressFireOnNextPredictTick = false;
+		}
 
 		if(pDummyChar && g_Config.m_ClDummyHammer)
 		{
@@ -989,18 +989,18 @@ bool CFastPractice::OverridePredict()
 	}
 
 	const bool InputMappingChanged = LocalClientId != m_LastResolvedLocalClientId ||
-		DummyClientId != m_LastResolvedDummyClientId ||
-		LocalInputConn != m_LastResolvedLocalInputConn ||
-		DummyInputConn != m_LastResolvedDummyInputConn;
-		if(InputMappingChanged)
-		{
-			if(g_Config.m_Debug)
-				dbg_msg("fast_practice", "role/input remap: local_id=%d dummy_id=%d local_conn=%d dummy_conn=%d",
-					LocalClientId, DummyClientId, LocalInputConn, DummyInputConn);
-			m_SuppressFireOnNextPredictTick = true;
-			m_InputSuppressTicks = std::max(m_InputSuppressTicks, 2);
-			ReleaseBufferedInputState();
-		}
+					 DummyClientId != m_LastResolvedDummyClientId ||
+					 LocalInputConn != m_LastResolvedLocalInputConn ||
+					 DummyInputConn != m_LastResolvedDummyInputConn;
+	if(InputMappingChanged)
+	{
+		if(g_Config.m_Debug)
+			dbg_msg("fast_practice", "role/input remap: local_id=%d dummy_id=%d local_conn=%d dummy_conn=%d",
+				LocalClientId, DummyClientId, LocalInputConn, DummyInputConn);
+		m_SuppressFireOnNextPredictTick = true;
+		m_InputSuppressTicks = std::max(m_InputSuppressTicks, 2);
+		ReleaseBufferedInputState();
+	}
 
 	GameClient()->m_PredictedDummyId = DummyClientId;
 
@@ -1675,9 +1675,9 @@ void CFastPractice::StoreLastDeathPosition(int ClientId, const vec2 &Pos)
 bool CFastPractice::IsSafeRescueTile(int Tile) const
 {
 	return Tile != TILE_DEATH &&
-		Tile != TILE_FREEZE &&
-		Tile != TILE_DFREEZE &&
-		Tile != TILE_LFREEZE;
+	       Tile != TILE_FREEZE &&
+	       Tile != TILE_DFREEZE &&
+	       Tile != TILE_LFREEZE;
 }
 
 bool CFastPractice::IsSafeRescuePosition(const vec2 &Pos, float ProximityRadius) const
