@@ -1,8 +1,8 @@
 /* Copyright © 2026 BestProject Team */
 #include "voice.h"
 
-#include "protocol.h"
 #include "../version.h"
+#include "protocol.h"
 
 #include <base/color.h>
 #include <base/log.h>
@@ -191,7 +191,7 @@ namespace
 	bool IsLegacyVoiceServerAddress(const char *pAddress)
 	{
 		return !pAddress || pAddress[0] == '\0' || str_comp(pAddress, MANAGED_VOICE_SERVER_CONFIG) == 0 ||
-			str_comp(pAddress, "127.0.0.1:8777") == 0 || str_comp(pAddress, "localhost:8777") == 0;
+		       str_comp(pAddress, "127.0.0.1:8777") == 0 || str_comp(pAddress, "localhost:8777") == 0;
 	}
 
 	const char *ResolvedVoiceServerAddress(const char *pAddress)
