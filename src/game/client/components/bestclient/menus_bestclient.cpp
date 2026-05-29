@@ -4019,9 +4019,8 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 
 			const float VisualizerSliderHeight = LineSize;
 			const float StaticColorTargetHeight = ColorPickerLineSize + ColorPickerSpacing;
-			const float HudColorTargetHeight = VisualizerSliderHeight;
 			const float VisualizerTargetHeight = LineSize * 7.0f;
-			const float ExtraTargetHeight = LineSize * 8.0f + MarginSmall + VisualizerTargetHeight * s_MusicPlayerVisualizerPhase + StaticColorTargetHeight * s_MusicPlayerStaticColorPhase;
+			const float ExtraTargetHeight = LineSize * 6.0f + MarginSmall + VisualizerTargetHeight * s_MusicPlayerVisualizerPhase + StaticColorTargetHeight * s_MusicPlayerStaticColorPhase;
 			const float ContentHeight = LineSize + MarginSmall + LineSize + ExtraTargetHeight * s_MusicPlayerPhase;
 			CUIRect Content, Label, Row, Visible;
 			BeginBlock(Column, ContentHeight, Content);
@@ -4120,13 +4119,6 @@ void CMenus::RenderSettingsBestClient(CUIRect MainView)
 				SliderRow.VSplitLeft(120.0f, &SliderLabel, &SliderButton);
 				Ui()->DoLabel(&SliderLabel, BCLocalize("Animation duration"), 14.0f, TEXTALIGN_ML);
 				Ui()->DoScrollbarOption(&g_Config.m_BcMusicPlayerAnimationMs, &g_Config.m_BcMusicPlayerAnimationMs, &SliderButton, "", 50, 1000, &CUi::ms_LinearScrollbarScale, 0u, " ms");
-
-				DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_BcMusicPlayerUseColorForHud, BCLocalize("Use Music Player color for HUD"), &g_Config.m_BcMusicPlayerUseColorForHud, &Expand, LineSize);
-
-				Expand.HSplitTop(HudColorTargetHeight, &SliderRow, &Expand);
-				SliderRow.VSplitLeft(120.0f, &SliderLabel, &SliderButton);
-				Ui()->DoLabel(&SliderLabel, BCLocalize("Music Player / HUD alpha"), 14.0f, TEXTALIGN_ML);
-				Ui()->DoScrollbarOption(&g_Config.m_BcMusicPlayerHudColorAlpha, &g_Config.m_BcMusicPlayerHudColorAlpha, &SliderButton, "", 0, 100, &CUi::ms_LinearScrollbarScale, 0u, "%");
 
 				DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_BcMusicPlayerVisualizer, BCLocalize("Enable visualizer"), &g_Config.m_BcMusicPlayerVisualizer, &Expand, LineSize);
 

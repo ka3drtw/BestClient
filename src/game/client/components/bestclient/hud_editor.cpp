@@ -25,6 +25,7 @@ namespace
 	constexpr float SNAP_THRESHOLD = 6.0f;
 	constexpr float SETTINGS_POPUP_WIDTH = 210.0f;
 	constexpr float SETTINGS_POPUP_HEIGHT = 132.0f;
+	constexpr float MUSIC_PLAYER_SETTINGS_POPUP_EXTRA_HEIGHT = 56.0f;
 
 	bool IsMusicPlayerEnabled(const CGameClient *pGameClient)
 	{
@@ -70,6 +71,23 @@ namespace
 	{
 		return Point.x >= Rect.x && Point.x <= Rect.x + Rect.w &&
 		       Point.y >= Rect.y && Point.y <= Rect.y + Rect.h;
+	}
+
+	float SettingsPopupHeight(HudLayout::EModule Module)
+	{
+		float Height = SETTINGS_POPUP_HEIGHT;
+		if(Module == HudLayout::MODULE_MUSIC_PLAYER)
+			Height += MUSIC_PLAYER_SETTINGS_POPUP_EXTRA_HEIGHT;
+		return Height;
+	}
+
+	void ResetModuleExtraSettings(HudLayout::EModule Module)
+	{
+		if(Module == HudLayout::MODULE_MUSIC_PLAYER)
+		{
+			g_Config.m_BcMusicPlayerUseColorForHud = DefaultConfig::BcMusicPlayerUseColorForHud;
+			g_Config.m_BcMusicPlayerHudColorAlpha = DefaultConfig::BcMusicPlayerHudColorAlpha;
+		}
 	}
 
 	void DrawRoundedRectOutline(IGraphics *pGraphics, const CUIRect &Rect, int Corners, float Rounding, ColorRGBA Color)
@@ -603,7 +621,7 @@ CUi::EPopupMenuFunctionResult CHudEditor::PopupModuleSettings(void *pContext, CU
 		return CUi::POPUP_CLOSE_CURRENT;
 
 	const bool Enabled = HudLayout::IsEnabled(pThis->m_SelectedModule);
-	CUIRect Title, ToggleButton, ScaleLabel, ScaleSlider, ResetPositionButton, ResetSettingsButton;
+	CUIRect Title, ToggleButton, ScaleLabel, ScaleSlider, MusicPlayerHudColorButton, MusicPlayerHudAlphaLabel, MusicPlayerHudAlphaSlider, ResetPositionButton, ResetSettingsButton;
 	View.HSplitTop(16.0f, &Title, &View);
 	pThis->Ui()->DoLabel(&Title, HudLayout::Name(pThis->m_SelectedModule), 10.0f, TEXTALIGN_MC);
 	View.HSplitTop(8.0f, nullptr, &View);
@@ -631,6 +649,24 @@ CUi::EPopupMenuFunctionResult CHudEditor::PopupModuleSettings(void *pContext, CU
 		View.HSplitTop(14.0f, nullptr, &View);
 	}
 
+	if(pThis->m_SelectedModule == HudLayout::MODULE_MUSIC_PLAYER)
+	{
+		View.HSplitTop(8.0f, nullptr, &View);
+		View.HSplitTop(16.0f, &MusicPlayerHudColorButton, &View);
+		if(pThis->GameClient()->m_Menus.DoButton_CheckBox(&g_Config.m_BcMusicPlayerUseColorForHud, BCLocalize("Use Music Player color for HUD"), g_Config.m_BcMusicPlayerUseColorForHud, &MusicPlayerHudColorButton))
+			g_Config.m_BcMusicPlayerUseColorForHud ^= 1;
+
+		View.HSplitTop(6.0f, nullptr, &View);
+		char aHudColorAlpha[64];
+		str_format(aHudColorAlpha, sizeof(aHudColorAlpha), "%s %d%%", BCLocalize("Music Player / HUD alpha"), g_Config.m_BcMusicPlayerHudColorAlpha);
+		View.HSplitTop(12.0f, &MusicPlayerHudAlphaLabel, &View);
+		pThis->Ui()->DoLabel(&MusicPlayerHudAlphaLabel, aHudColorAlpha, 8.0f, TEXTALIGN_ML);
+		View.HSplitTop(14.0f, &MusicPlayerHudAlphaSlider, &View);
+		const float HudAlphaRelative = CUi::ms_LinearScrollbarScale.ToRelative(g_Config.m_BcMusicPlayerHudColorAlpha, 0, 100);
+		const float NewHudAlphaRelative = pThis->Ui()->DoScrollbarH(&g_Config.m_BcMusicPlayerHudColorAlpha, &MusicPlayerHudAlphaSlider, HudAlphaRelative);
+		g_Config.m_BcMusicPlayerHudColorAlpha = CUi::ms_LinearScrollbarScale.ToAbsolute(NewHudAlphaRelative, 0, 100);
+	}
+
 	View.HSplitTop(10.0f, nullptr, &View);
 	View.HSplitTop(16.0f, &ResetPositionButton, &View);
 	if(pThis->Ui()->DoButton_PopupMenu(&pThis->m_ResetPositionButton, BCLocalize("Reset position"), &ResetPositionButton, 8.0f, TEXTALIGN_MC))
@@ -639,7 +675,10 @@ CUi::EPopupMenuFunctionResult CHudEditor::PopupModuleSettings(void *pContext, CU
 	View.HSplitTop(5.0f, nullptr, &View);
 	View.HSplitTop(16.0f, &ResetSettingsButton, &View);
 	if(pThis->Ui()->DoButton_PopupMenu(&pThis->m_ResetSettingsButton, BCLocalize("Reset settings"), &ResetSettingsButton, 8.0f, TEXTALIGN_MC))
+	{
 		HudLayout::ResetSettings(pThis->m_SelectedModule);
+		ResetModuleExtraSettings(pThis->m_SelectedModule);
+	}
 	return CUi::POPUP_KEEP_OPEN;
 }
 
@@ -656,7 +695,7 @@ void CHudEditor::OpenModuleSettings(const SModuleVisual &Visual)
 	constexpr float PopupMargin = 5.0f;
 	constexpr float PopupGap = 6.0f;
 	const float PopupWidth = SETTINGS_POPUP_WIDTH * UiScaleX;
-	const float PopupHeight = SETTINGS_POPUP_HEIGHT * UiScaleY;
+	const float PopupHeight = SettingsPopupHeight(Visual.m_Module) * UiScaleY;
 	const CUIRect ModuleRectUi = {
 		Visual.m_Rect.x * UiScaleX,
 		Visual.m_Rect.y * UiScaleY,
